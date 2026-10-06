@@ -103,10 +103,14 @@ Item {
                             playing: root.playing ? root.service.playing : null,
                             paused: root.playing ? root.service.paused : false,
                             position: root.playing ? root.service.position : 0,
-                            duration: root.playing ? root.service.duration : 0 })
+                            duration: root.playing ? root.service.duration : 0,
+                            settings: root.settings,
+                            ownSettings: root.serviceReady && root.service.ownSettings !== null,
+                            hostQuality: root.serviceReady ? root.service.hostSettings.quality : "" })
   }
   function pressKey(name) {
     var n = String(name || "")
+    if (n.indexOf("alt+") === 0) return root.settingShortcut(n.slice(4)) ? "ok" : "unknown"
     if (n === "up") root.moveCursor(-1)
     else if (n === "down") root.moveCursor(1)
     else if (n === "enter") root.activate()
@@ -233,6 +237,17 @@ Item {
     root.service.setSetting(key, Model.cycle(list, root.settings[key]))
   }
 
+  // The Alt+<letter> shortcuts; also reachable through the pressKey hook.
+  function settingShortcut(letter) {
+    if (!root.serviceReady) return false
+    if (letter === "p") root.cycleSetting("provider", Model.PROVIDERS)
+    else if (letter === "q") root.cycleSetting("quality", Model.QUALITIES)
+    else if (letter === "a") root.service.setSetting("dub", !root.settings.dub)
+    else if (letter === "n") root.service.setSetting("autoNext", !root.settings.autoNext)
+    else return false
+    return true
+  }
+
   function showNotice(text) {
     root.notice = text
     noticeTimer.restart()
@@ -251,10 +266,10 @@ Item {
     var alt = event.modifiers & Qt.AltModifier
     var shift = event.modifiers & Qt.ShiftModifier
     if (event.key === Qt.Key_Escape) { root.back(); return true }
-    if (alt && event.key === Qt.Key_P) { root.cycleSetting("provider", Model.PROVIDERS); return true }
-    if (alt && event.key === Qt.Key_Q) { root.cycleSetting("quality", Model.QUALITIES); return true }
-    if (alt && event.key === Qt.Key_A) { if (root.serviceReady) root.service.setSetting("dub", !root.settings.dub); return true }
-    if (alt && event.key === Qt.Key_N) { if (root.serviceReady) root.service.setSetting("autoNext", !root.settings.autoNext); return true }
+    if (alt && event.key === Qt.Key_P) { root.settingShortcut("p"); return true }
+    if (alt && event.key === Qt.Key_Q) { root.settingShortcut("q"); return true }
+    if (alt && event.key === Qt.Key_A) { root.settingShortcut("a"); return true }
+    if (alt && event.key === Qt.Key_N) { root.settingShortcut("n"); return true }
     if (ctrl && event.key === Qt.Key_Space) { if (root.serviceReady) root.service.togglePause(); return true }
     if (ctrl && event.key === Qt.Key_N) { if (root.serviceReady) root.service.next(); return true }
     if (ctrl && event.key === Qt.Key_S) { if (root.serviceReady) root.service.stop(); return true }

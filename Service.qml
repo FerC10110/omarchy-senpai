@@ -34,20 +34,64 @@ Item {
   readonly property int activeDownloads: Model.countRunning(downloads)
 
   // ---- settings: the bar entry in shell.json, defaults applied. Our own
-  // write is applied locally at once; the host echoes it later.
-  readonly property var hostSettings: Model.settingsFrom(Model.findBarEntry(shell ? shell.barConfig : null, pluginId))
+  // write applies at once and stays authoritative until the host echoes it
+  // back. While updateEntryInline runs, the host re-publishes barConfig
+  // dozens of times with the *previous* config; trusting those echoes showed
+  // the old value for ~250 ms and made a second Alt+key inside that window
+  // cycle from the stale value, so the write was a no-op. A differing echo
+  // wins only after 3 s (an edit made elsewhere), and only when the bar has
+  // an entry for us — without one the setting has nowhere to persist.
+  readonly property var hostEntry: Model.findBarEntry(shell ? shell.barConfig : null, pluginId)
+  readonly property var hostSettings: Model.settingsFrom(hostEntry)
+  readonly property bool hostEntryFound: Object.keys(hostEntry).length > 0
   property var ownSettings: null
-  readonly property var settings: ownSettings !== null ? ownSettings : hostSettings
-  onHostSettingsChanged: ownSettings = null
+  property double ownSince: 0
+  property var settings: Model.settingsFrom(null)
+  onHostSettingsChanged: {
+    if (ownSettings !== null
+        && (Model.settingsEqual(hostSettings, ownSettings) || (hostEntryFound && Date.now() - ownSince > 3000)))
+      ownSettings = null
+    refreshSettings()
+  }
+  onOwnSettingsChanged: refreshSettings()
+
+  // One `settings` object per real change: every host echo builds a new
+  // hostSettings object, and the overlay rebuilds its chips on each one.
+  function refreshSettings() {
+    var next = ownSettings !== null ? ownSettings : hostSettings
+    if (!Model.settingsEqual(next, settings)) settings = next
+  }
 
   function setSetting(key, value) {
     var next = {}
     var keys = Object.keys(Model.DEFAULTS)
     for (var i = 0; i < keys.length; i++) next[keys[i]] = root.settings[keys[i]]
     next[key] = value
+    root.ownSince = Date.now()
     root.ownSettings = Model.settingsFrom(next)
-    if (root.shell && typeof root.shell.updateEntryInline === "function")
+    writeSoon.restart()
+  }
+
+  function writeOwnSettings() {
+    if (root.ownSettings !== null && root.shell && typeof root.shell.updateEntryInline === "function")
       root.shell.updateEntryInline(root.pluginId, Model.entryFrom(root.ownSettings, root.pluginId))
+  }
+
+  // Every shell.json write stalls the shell for ~200 ms (it re-registers all
+  // plugin widgets), so a run of Alt+key presses is written once, after it.
+  Timer {
+    id: writeSoon
+    interval: 400
+    onTriggered: { root.ownSince = Date.now(); root.writeOwnSettings(); reassert.restart() }
+  }
+
+  // Quick successive writes can leave the host's in-memory config behind the
+  // file (its watcher misses an atomic rename); writing once more makes it
+  // see a change and echo the real state back.
+  Timer {
+    id: reassert
+    interval: 1000
+    onTriggered: if (root.ownSettings !== null && root.hostEntryFound && !Model.settingsEqual(root.hostSettings, root.ownSettings)) root.writeOwnSettings()
   }
 
   function helperArgs(extra) {
@@ -280,6 +324,7 @@ Item {
   Timer { interval: root.isPlaying || root.activeDownloads > 0 ? 5000 : 10000; repeat: true; running: true; onTriggered: root.refreshStatus() }
 
   Component.onCompleted: {
+    root.refreshSettings()
     root.refreshStatus()
     root.refreshHome(null)
   }

@@ -18,6 +18,21 @@ omarchy-shell shell toggle "$ID" '{}'
 sleep 1
 omarchy-shell shell call "$ID" stateJson ""
 echo
+say "shell: two quick Alt+Q presses cycle the quality twice (real keys)"
+quality() { omarchy-shell shell call "$ID" stateJson "" | python3 -c 'import json,sys; print(json.load(sys.stdin)["settings"]["quality"])'; }
+if command -v wtype >/dev/null 2>&1; then
+  before=$(quality)
+  wtype -M alt -k q -m alt; sleep 0.06; wtype -M alt -k q -m alt
+  sleep 1.5
+  echo "quality: $before -> $(quality)  (expected: two steps along best,1080,720,480,360,worst)"
+  for _ in 1 2 3 4 5 6 7; do
+    [ "$(quality)" = "$before" ] && break
+    omarchy-shell shell call "$ID" pressKey "alt+q" >/dev/null; sleep 0.5
+  done
+  echo "quality restored: $(quality)"
+else
+  echo "wtype not installed: skipped"
+fi
 say "shell: type a query"
 omarchy-shell shell call "$ID" setQuery "frieren"
 sleep 4

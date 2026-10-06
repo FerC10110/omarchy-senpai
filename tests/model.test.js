@@ -27,6 +27,14 @@ test("entryFrom writes every setting next to the id", () => {
   assert.equal(entry.subLang, "latino,es,en")
 })
 
+test("settingsEqual tells a converged host echo from a stale one", () => {
+  const own = Model.settingsFrom({ quality: "720", dub: "true" })
+  assert.equal(Model.settingsEqual(own, Model.settingsFrom({ quality: "720", dub: true })), true)
+  assert.equal(Model.settingsEqual(own, Model.settingsFrom({ quality: "1080", dub: true })), false)
+  assert.equal(Model.settingsEqual(own, null), false)
+  assert.equal(Model.settingsEqual(null, null), false)
+})
+
 test("cycle wraps and recovers from an unknown value", () => {
   assert.equal(Model.cycle(Model.PROVIDERS, "auto"), "hianime")
   assert.equal(Model.cycle(Model.PROVIDERS, "animeflv"), "auto")

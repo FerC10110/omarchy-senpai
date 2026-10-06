@@ -84,6 +84,14 @@ function entryFrom(settings, pluginId) {
   return entry
 }
 
+// Same values for every settings key (both are settingsFrom() objects).
+function settingsEqual(a, b) {
+  if (!a || !b) return false
+  var keys = Object.keys(DEFAULTS)
+  for (var i = 0; i < keys.length; i++) if (a[keys[i]] !== b[keys[i]]) return false
+  return true
+}
+
 function cycle(list, current) {
   var i = list.indexOf(current)
   return list[(i + 1) % list.length]
@@ -274,7 +282,7 @@ if (typeof module !== "undefined") {
     PLUGIN_ID: PLUGIN_ID, PROVIDERS: PROVIDERS, QUALITIES: QUALITIES, DEFAULTS: DEFAULTS,
     GLYPH_IDLE: GLYPH_IDLE, GLYPH_PLAYING: GLYPH_PLAYING, GLYPH_PAUSED: GLYPH_PAUSED,
     boolSetting: boolSetting, intSetting: intSetting, findBarEntry: findBarEntry, settingsFrom: settingsFrom,
-    entryFrom: entryFrom, cycle: cycle, nextEpisode: nextEpisode, formatTime: formatTime, barLabel: barLabel,
+    entryFrom: entryFrom, settingsEqual: settingsEqual, cycle: cycle, nextEpisode: nextEpisode, formatTime: formatTime, barLabel: barLabel,
     tooltip: tooltip, homeRows: homeRows, resultRows: resultRows, episodeMark: episodeMark, episodeRows: episodeRows,
     jumpIndex: jumpIndex, clampIndex: clampIndex, parseEvents: parseEvents, latestPlaying: latestPlaying,
     mpvLine: mpvLine, playArgs: playArgs, countRunning: countRunning, downloadLine: downloadLine,
