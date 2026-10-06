@@ -1,0 +1,12 @@
+// Senpai entries for the Omarchy menu. Merge into
+// ~/.config/omarchy/extensions/omarchy-menu.jsonc (ids are object keys; the
+// dotted ids become rows of the "senpai" submenu).
+{
+  "senpai": {"icon": "", "label": "Senpai", "description": "Anime: search, continue, download", "aliases": ["anime", "ani-py"]},
+  "senpai.open": {"icon": "", "label": "Find anime", "action": "omarchy-shell shell toggle io.github.ferc10110.senpai"},
+  "senpai.continue": {"icon": "", "label": "Continue watching",
+    "action": "python3 $HOME/.config/omarchy/plugins/io.github.ferc10110.senpai/bin/senpai continue"},
+  "senpai.stop": {"icon": "", "label": "Stop playback",
+    "action": "python3 $HOME/.config/omarchy/plugins/io.github.ferc10110.senpai/bin/senpai stop",
+    "when": "test -f ${XDG_RUNTIME_DIR:-/tmp}/senpai/now-playing.json"}
+}
