@@ -157,7 +157,8 @@ Item {
       root.digits = ""
       root.rows = Model.episodeRows(payload)
       root.cursor = Model.cursorAfterEpisodes(root.rows)
-      root.scrollToCursor()
+      // Centered, so the episodes around the next one are in view.
+      if (list.height > 0) list.positionViewAtIndex(root.cursor, ListView.Center)
     })
   }
 
