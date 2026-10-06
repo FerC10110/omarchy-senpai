@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""A stand-in for ani_py.py: canned JSON answers, every argv logged.
+
+Knobs (environment): FAKE_ANI_PY_LOG (append one JSON argv per call),
+FAKE_HISTORY (path to a JSON list of history entries), FAKE_EVENTS (JSON list
+of headless events to print), FAKE_SLEEP (seconds between events),
+FAKE_HANG (seconds to sleep before answering a search).
+"""
+import json
+import os
+import sys
+import time
+
+argv = sys.argv[1:]
+log = os.environ.get("FAKE_ANI_PY_LOG")
+if log:
+    with open(log, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(argv) + "\n")
+
+
+def out(payload, code=0):
+    print(json.dumps(payload))
+    sys.exit(code)
+
+
+if "--version" in argv:
+    print("ani-py 2026.10.6")
+    sys.exit(0)
+if "--help" in argv:
+    print("usage: ani-py [--json] [--headless] [--select PROVIDER:ID]")
+    sys.exit(0)
+if "--list-providers" in argv:
+    out({"providers": [{"name": "hianime", "display_name": "HiAnime",
+                        "capabilities": {"sub": True, "dub": True, "subtitles": True, "mal_id": True},
+                        "experimental": False}]})
+if "--history" in argv:
+    path = os.environ.get("FAKE_HISTORY")
+    if path:
+        with open(path, encoding="utf-8") as fh:
+            entries = json.load(fh)
+    else:
+        entries = [
+            {"provider": "hianime", "id": "one-piece-100", "title": "One Piece", "episode": "4", "completed": True},
+            {"provider": "hianime", "id": "frieren-481", "title": "Frieren: Beyond Journey's End", "episode": "7", "completed": False},
+        ]
+    out({"entries": entries})
+if "--list-episodes" in argv:
+    spec = argv[argv.index("--select") + 1]
+    provider, _, ident = spec.partition(":")
+    title = argv[argv.index("--title") + 1] if "--title" in argv else ident
+    out({"anime": {"provider": provider, "id": ident, "title": title},
+         "episodes": [{"number": str(n), "id": str(1000 + n), "state": "watched" if n < 4 else "new"} for n in range(1, 6)]})
+if "--headless" in argv:
+    delay = float(os.environ.get("FAKE_SLEEP", "0.2"))
+    raw = os.environ.get("FAKE_EVENTS")
+    if raw:
+        events = json.loads(raw)
+    elif "-d" in argv:
+        events = [{"event": "downloading", "episode": "1"}, {"event": "downloaded", "episode": "1"}, {"event": "ended", "rc": 0}]
+    else:
+        events = [{"event": "resolving", "episode": "1"}, {"event": "playing", "episode": "1", "title": "One Piece"},
+                  {"event": "completed", "episode": "1"}, {"event": "ended", "rc": 0}]
+    try:
+        for event in events:
+            print(json.dumps(event), flush=True)
+            time.sleep(delay)
+    except KeyboardInterrupt:
+        print(json.dumps({"event": "stopped", "episode": "1", "reason": "closed"}), flush=True)
+        print(json.dumps({"event": "ended", "rc": 0}), flush=True)
+        sys.exit(0)
+    sys.exit(int(events[-1].get("rc", 0)))
+# A plain search.
+query = " ".join(a for a in argv if not a.startswith("-") and a not in ("hianime", "animeav1", "animeflv"))
+if os.environ.get("FAKE_HANG"):
+    time.sleep(float(os.environ["FAKE_HANG"]))
+if "nothing" in query:
+    out({"error": "No results found."}, 1)
+out({"results": [{"provider": "hianime", "id": "one-piece-100", "title": "One Piece"},
+                 {"provider": "hianime", "id": "frieren-481", "title": "Frieren: Beyond Journey's End"}]})

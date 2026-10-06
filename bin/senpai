@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""senpai -- the one door between the Omarchy shell and ani-py.
+
+Every command prints exactly one JSON object on stdout and exits 0; a failure
+prints {"error": "..."} and exits 1. Nothing here opens a menu or a terminal.
+"""
+import argparse
+import json
+import os
+import signal
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# Writes inside the plugin folder trigger a shell hot reload.
+sys.dont_write_bytecode = True
+
+HELPER = Path(__file__).resolve()
+ANI_PY_TIMEOUT = 40
+STOP_GRACE = 3.0
+RECENT_LIMIT = 20
+DOWNLOAD_LIMIT = 10
+
+
+class SenpaiError(Exception):
+    """A failure the UI should show as text."""
+
+
+# ---------- paths and files
+
+def runtime_dir() -> Path:
+    base = os.environ.get("SENPAI_RUNTIME_DIR")
+    if base:
+        root = Path(base)
+    elif os.environ.get("XDG_RUNTIME_DIR"):
+        root = Path(os.environ["XDG_RUNTIME_DIR"]) / "senpai"
+    else:
+        root = Path.home() / ".cache" / "senpai" / "run"
+    (root / "downloads").mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def ani_py_path(override: str | None) -> Path:
+    path = Path(override or os.environ.get("SENPAI_ANI_PY") or HELPER.parent / "ani_py.py")
+    if not path.is_file():
+        raise SenpaiError(f"ani_py.py not found at {path}")
+    return path
+
+
+def read_json(path: Path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def write_json(path: Path, payload) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh)
+    os.replace(tmp, path)
+
+
+# ---------- ani-py
+
+def ani_py(args, override=None, timeout=ANI_PY_TIMEOUT, env=None) -> dict:
+    """Run ani_py.py --json and return the JSON object on its last stdout line."""
+    cmd = [sys.executable, str(ani_py_path(override)), "--json", *args]
+    full_env = dict(os.environ)
+    full_env.update(env or {})
+    try:
+        done = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL, env=full_env,
+        )
+    except subprocess.TimeoutExpired:
+        raise SenpaiError(f"ani-py took longer than {timeout:g} s") from None
+    lines = [line for line in done.stdout.splitlines() if line.strip()]
+    payload = None
+    if lines:
+        try:
+            payload = json.loads(lines[-1])
+        except ValueError:
+            payload = None
+    if isinstance(payload, dict) and "error" in payload:
+        raise SenpaiError(str(payload["error"]))
+    if done.returncode != 0 or not isinstance(payload, dict):
+        tail = [line for line in done.stderr.splitlines() if line.strip()]
+        raise SenpaiError(tail[-1] if tail else f"ani-py exited with code {done.returncode}")
+    return payload
+
+
+# ---------- history helpers (pure)
+
+def next_episode(number) -> str:
+    """The episode after `number`; a half episode ("12.5") continues at 13."""
+    try:
+        value = float(number)
+    except (TypeError, ValueError):
+        return str(number)
+    return str(int(value) + 1)
+
+
+def continue_entry(entries):
+    if not entries:
+        return None
+    last = dict(entries[0])
+    if last.get("completed"):
+        last["episode"] = next_episode(last.get("episode"))
+        last["resume"] = False
+    else:
+        last["resume"] = True
+    return last
+
+
+def recent_entries(entries):
+    seen, out = set(), []
+    for entry in entries:
+        key = (entry.get("provider"), entry.get("id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(entry)
+        if len(out) >= RECENT_LIMIT:
+            break
+    return out
+
+
+def home_from(entries) -> dict:
+    return {"continue": continue_entry(entries), "recent": recent_entries(entries)}
+
+
+# ---------- commands
+
+def cmd_search(opts) -> dict:
+    args = []
+    if opts.provider and opts.provider != "auto":
+        args += ["--provider", opts.provider]
+    return ani_py(args + [opts.query], opts.ani_py)
+
+
+def cmd_episodes(opts) -> dict:
+    args = ["--select", f"{opts.provider_name}:{opts.id}", "--list-episodes"]
+    if opts.title:
+        args += ["--title", opts.title]
+    return ani_py(args, opts.ani_py)
+
+
+def cmd_home(opts) -> dict:
+    return home_from(ani_py(["--history"], opts.ani_py).get("entries") or [])
+
+
+# ---------- CLI
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="senpai", description=__doc__.splitlines()[0])
+    parser.add_argument("--ani-py", dest="ani_py", help="path to ani_py.py (default: next to this helper)")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    search = sub.add_parser("search", help="search anime")
+    search.add_argument("query")
+    search.add_argument("--provider", default="auto")
+    search.set_defaults(run=cmd_search)
+
+    episodes = sub.add_parser("episodes", help="list the episodes of an anime")
+    episodes.add_argument("provider_name")
+    episodes.add_argument("id")
+    episodes.add_argument("--title")
+    episodes.set_defaults(run=cmd_episodes)
+
+    home = sub.add_parser("home", help="what to continue and what was watched recently")
+    home.set_defaults(run=cmd_home)
+    return parser
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
+    opts = parser.parse_args(argv)
+    try:
+        payload = opts.run(opts)
+    except SenpaiError as exc:
+        print(json.dumps({"error": str(exc)}))
+        return 1
+    print(json.dumps(payload, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

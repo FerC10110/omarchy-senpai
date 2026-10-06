@@ -1,0 +1,3 @@
+#!/bin/sh
+# Records what the supervisor would have shown.
+printf '%s\n' "$*" >> "${FAKE_NOTIFY_LOG:-/dev/null}"
