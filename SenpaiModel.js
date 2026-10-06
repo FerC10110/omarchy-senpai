@@ -1,0 +1,251 @@
+// SenpaiModel.js -- pure logic for io.github.ferc10110.senpai.
+// No QML, no I/O, no timers: values in, values out. ES5 so the QML engine
+// and node both load it; tests live in tests/model.test.js.
+
+var PLUGIN_ID = "io.github.ferc10110.senpai"
+var PROVIDERS = ["auto", "hianime", "animeav1", "animeflv"]
+var QUALITIES = ["best", "1080", "720", "480", "360", "worst"]
+var LABEL_WIDTH_MIN = 60
+var LABEL_WIDTH_MAX = 600
+
+// Nerd Font (Font Awesome set): film, play-circle, pause-circle.
+var GLYPH_IDLE = ""
+var GLYPH_PLAYING = ""
+var GLYPH_PAUSED = ""
+
+var DEFAULTS = {
+  subLang: "latino,es,en",
+  provider: "auto",
+  dub: false,
+  quality: "best",
+  autoNext: false,
+  subSearch: true,
+  skipIntro: false,
+  downloadDir: "",
+  showTitleInBar: true,
+  barLabelMaxWidth: 180,
+  aniPyPath: ""
+}
+
+function str(v) { return v === undefined || v === null ? "" : String(v) }
+
+function boolSetting(v) {
+  if (v === true || v === 1) return true
+  var s = str(v).toLowerCase()
+  return s === "true" || s === "1" || s === "yes" || s === "on"
+}
+
+function intSetting(v, fallback, min, max) {
+  var n = parseInt(v, 10)
+  if (isNaN(n)) n = fallback
+  if (n < min) n = min
+  if (n > max) n = max
+  return n
+}
+
+function findBarEntry(barConfig, pluginId) {
+  var id = str(pluginId)
+  if (!barConfig || typeof barConfig !== "object" || !barConfig.layout || typeof barConfig.layout !== "object") return {}
+  var sections = ["left", "center", "right"]
+  for (var s = 0; s < sections.length; s++) {
+    var entries = barConfig.layout[sections[s]]
+    if (!Array.isArray(entries)) continue
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i]
+      if (typeof entry === "string" && entry === id) return { id: id }
+      if (entry && typeof entry === "object" && str(entry.id) === id) return entry
+    }
+  }
+  return {}
+}
+
+function settingsFrom(entry) {
+  var e = entry && typeof entry === "object" ? entry : {}
+  function pick(key) { return e[key] === undefined || e[key] === null || e[key] === "" ? DEFAULTS[key] : e[key] }
+  return {
+    subLang: str(pick("subLang")),
+    provider: PROVIDERS.indexOf(str(pick("provider"))) >= 0 ? str(pick("provider")) : DEFAULTS.provider,
+    dub: boolSetting(pick("dub")),
+    quality: str(pick("quality")),
+    autoNext: boolSetting(pick("autoNext")),
+    subSearch: boolSetting(pick("subSearch")),
+    skipIntro: boolSetting(pick("skipIntro")),
+    downloadDir: str(e.downloadDir || ""),
+    showTitleInBar: boolSetting(pick("showTitleInBar")),
+    barLabelMaxWidth: intSetting(pick("barLabelMaxWidth"), DEFAULTS.barLabelMaxWidth, LABEL_WIDTH_MIN, LABEL_WIDTH_MAX),
+    aniPyPath: str(e.aniPyPath || "")
+  }
+}
+
+function entryFrom(settings, pluginId) {
+  var entry = { id: str(pluginId) }
+  var keys = Object.keys(DEFAULTS)
+  for (var i = 0; i < keys.length; i++) entry[keys[i]] = settings[keys[i]]
+  return entry
+}
+
+function cycle(list, current) {
+  var i = list.indexOf(current)
+  return list[(i + 1) % list.length]
+}
+
+function nextEpisode(number) {
+  var n = parseFloat(number)
+  if (isNaN(n)) return str(number)
+  return String(Math.floor(n) + 1)
+}
+
+function formatTime(seconds) {
+  var total = Math.floor(Number(seconds))
+  if (!isFinite(total) || total < 0) total = 0
+  var h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60
+  var mm = (h > 0 && m < 10 ? "0" : "") + m, ss = (s < 10 ? "0" : "") + s
+  return h > 0 ? h + ":" + mm + ":" + ss : m + ":" + ss
+}
+
+function barLabel(playing) {
+  if (!playing) return ""
+  return str(playing.title) + " · " + str(playing.episode)
+}
+
+function tooltip(state) {
+  var downloads = state.downloads || 0
+  if (!state.playing) return "Senpai: nothing playing" + (downloads ? " · " + downloads + " download" + (downloads === 1 ? "" : "s") + " running" : "")
+  var parts = [str(state.playing.title) + " · Ep " + str(state.playing.episode)]
+  var clock = formatTime(state.position)
+  if (state.duration > 0) clock += " / " + formatTime(state.duration)
+  parts.push(clock)
+  if (state.paused) parts.push("paused")
+  if (state.subtitle && state.subtitle.language) parts.push("subtitles " + state.subtitle.language + (state.subtitle.source ? " (" + state.subtitle.source + ")" : ""))
+  if (downloads) parts.push(downloads + " download" + (downloads === 1 ? "" : "s") + " running")
+  return parts.join(" · ")
+}
+
+function homeRows(home) {
+  var rows = []
+  var cont = home && home.continue ? home.continue : null
+  if (cont) rows.push({ kind: "continue", provider: cont.provider, id: cont.id, title: "Continue · " + str(cont.title),
+                        animeTitle: str(cont.title), episode: str(cont.episode),
+                        subtitle: "Episode " + str(cont.episode) + (cont.resume ? " · resume" : "") })
+  var recent = home && Array.isArray(home.recent) ? home.recent : []
+  for (var i = 0; i < recent.length; i++) {
+    var r = recent[i]
+    rows.push({ kind: "recent", provider: r.provider, id: r.id, title: str(r.title), animeTitle: str(r.title), episode: str(r.episode),
+                subtitle: "Episode " + str(r.episode) + " · " + (r.completed ? "watched" : "unfinished") })
+  }
+  if (rows.length === 0) rows.push({ kind: "empty", title: "Nothing watched yet", subtitle: "Type to search" })
+  return rows
+}
+
+function resultRows(payload) {
+  var list = payload && Array.isArray(payload.results) ? payload.results : []
+  return list.map(function (r) {
+    return { kind: "result", provider: str(r.provider), id: str(r.id), title: str(r.title), subtitle: str(r.provider) }
+  })
+}
+
+function episodeMark(state) {
+  if (state === "watched") return "✓"
+  if (state === "unfinished") return "◐"
+  return ""
+}
+
+function episodeRows(payload) {
+  var list = payload && Array.isArray(payload.episodes) ? payload.episodes : []
+  return list.map(function (e) {
+    return { kind: "episode", number: str(e.number), id: str(e.id), state: str(e.state), mark: episodeMark(e.state), title: "Episode " + str(e.number) }
+  })
+}
+
+function jumpIndex(rows, digits) {
+  var d = str(digits)
+  if (d === "" || !/^\d+$/.test(d)) return -1
+  var prefix = -1
+  for (var i = 0; i < rows.length; i++) {
+    var n = str(rows[i].number)
+    if (n === d) return i
+    if (prefix < 0 && n.indexOf(d) === 0) prefix = i
+  }
+  return prefix
+}
+
+function clampIndex(index, count) {
+  if (count <= 0) return 0
+  if (index < 0) return 0
+  if (index >= count) return count - 1
+  return index
+}
+
+function parseEvents(text) {
+  var out = []
+  var lines = str(text).split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim()
+    if (!line) continue
+    try {
+      var obj = JSON.parse(line)
+      if (obj && typeof obj === "object" && obj.event) out.push(obj)
+    } catch (e) { /* a half-written line; the next read sees it whole */ }
+  }
+  return out
+}
+
+function latestPlaying(events) {
+  var found = null
+  for (var i = 0; i < events.length; i++) {
+    if (events[i].event === "playing") found = events[i]
+    else if (events[i].event === "ended") found = null
+  }
+  return found
+}
+
+function mpvLine(state, line) {
+  var msg
+  try { msg = JSON.parse(line) } catch (e) { return state }
+  if (!msg || msg.event !== "property-change" || msg.data === null || msg.data === undefined) return state
+  if (msg.name === "pause") return { paused: !!msg.data, position: state.position, duration: state.duration }
+  if (msg.name === "time-pos") return { paused: state.paused, position: Number(msg.data), duration: state.duration }
+  if (msg.name === "duration") return { paused: state.paused, position: state.position, duration: Number(msg.data) }
+  return state
+}
+
+function playArgs(settings) {
+  var args = ["--sub-lang", settings.subLang, "--quality", settings.quality]
+  if (settings.dub) args.push("--dub")
+  if (settings.autoNext) args.push("--auto-next")
+  if (!settings.subSearch) args.push("--no-sub-search")
+  if (settings.skipIntro) args.push("--skip")
+  if (settings.downloadDir) args.push("--download-dir", settings.downloadDir)
+  return args
+}
+
+function countRunning(downloads) {
+  var n = 0
+  for (var i = 0; i < (downloads || []).length; i++) if (downloads[i].state === "running") n++
+  return n
+}
+
+function downloadLine(d) {
+  var state = d.state === "running" ? "downloading" : str(d.state)
+  return "↓ " + str(d.title) + " " + str(d.episodes) + " · " + state
+}
+
+function nowPlayingLine(playing, paused, position, duration) {
+  if (!playing) return ""
+  var clock = formatTime(position)
+  if (duration > 0) clock += " / " + formatTime(duration)
+  return (paused ? "⏸ " : "▶ ") + str(playing.title) + " · Ep " + str(playing.episode) + " · " + clock
+}
+
+if (typeof module !== "undefined") {
+  module.exports = {
+    PLUGIN_ID: PLUGIN_ID, PROVIDERS: PROVIDERS, QUALITIES: QUALITIES, DEFAULTS: DEFAULTS,
+    GLYPH_IDLE: GLYPH_IDLE, GLYPH_PLAYING: GLYPH_PLAYING, GLYPH_PAUSED: GLYPH_PAUSED,
+    boolSetting: boolSetting, intSetting: intSetting, findBarEntry: findBarEntry, settingsFrom: settingsFrom,
+    entryFrom: entryFrom, cycle: cycle, nextEpisode: nextEpisode, formatTime: formatTime, barLabel: barLabel,
+    tooltip: tooltip, homeRows: homeRows, resultRows: resultRows, episodeMark: episodeMark, episodeRows: episodeRows,
+    jumpIndex: jumpIndex, clampIndex: clampIndex, parseEvents: parseEvents, latestPlaying: latestPlaying,
+    mpvLine: mpvLine, playArgs: playArgs, countRunning: countRunning, downloadLine: downloadLine,
+    nowPlayingLine: nowPlayingLine
+  }
+}
