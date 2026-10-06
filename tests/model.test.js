@@ -35,6 +35,13 @@ test("settingsEqual tells a converged host echo from a stale one", () => {
   assert.equal(Model.settingsEqual(null, null), false)
 })
 
+test("Alt+S cycles the subtitle presets and brings a custom list back to the default", () => {
+  assert.deepEqual(Model.SUB_LANGS, ["latino,es,en", "es,en", "en"])
+  assert.equal(Model.cycle(Model.SUB_LANGS, "latino,es,en"), "es,en")
+  assert.equal(Model.cycle(Model.SUB_LANGS, "en"), "latino,es,en")
+  assert.equal(Model.cycle(Model.SUB_LANGS, "ja,en"), "latino,es,en")
+})
+
 test("cycle wraps and recovers from an unknown value", () => {
   assert.equal(Model.cycle(Model.PROVIDERS, "auto"), "hianime")
   assert.equal(Model.cycle(Model.PROVIDERS, "animeflv"), "auto")
@@ -166,9 +173,11 @@ test("cursorAfterEpisodes lands on the first episode still to watch", () => {
 })
 
 test("chips describe the settings in order", () => {
-  const chips = Model.chips(Object.assign({}, Model.DEFAULTS, { dub: true, quality: "720", autoNext: true, subSearch: false }))
-  assert.deepEqual(chips, ["Provider auto", "Audio dub", "Quality 720", "Subs off", "Auto-next on"])
-  assert.deepEqual(Model.chips(Model.DEFAULTS), ["Provider auto", "Audio sub", "Quality best", "Subs on", "Auto-next off"])
+  const chips = Model.chips(Object.assign({}, Model.DEFAULTS, { dub: true, quality: "720", autoNext: true, subSearch: false, subLang: "en" }))
+  assert.deepEqual(chips, ["Provider auto", "Audio dub", "Quality 720", "Subs en", "Search off", "Auto-next on"])
+  assert.deepEqual(Model.chips(Model.DEFAULTS), ["Provider auto", "Audio sub", "Quality best", "Subs latino", "Search on", "Auto-next off"])
+  assert.equal(Model.chips(Object.assign({}, Model.DEFAULTS, { subLang: " es , en" }))[3], "Subs es")
+  assert.equal(Model.chips(Object.assign({}, Model.DEFAULTS, { subLang: "" }))[3], "Subs auto")
 })
 
 test("withLatestEpisode follows the episode ani-py reports under auto-next", () => {

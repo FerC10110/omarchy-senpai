@@ -27,6 +27,9 @@ var DEFAULTS = {
   aniPyPath: ""
 }
 
+// Alt+S presets; a custom subLang list is not in here, so it cycles back to the default.
+var SUB_LANGS = ["latino,es,en", "es,en", "en"]
+
 function str(v) { return v === undefined || v === null ? "" : String(v) }
 
 function boolSetting(v) {
@@ -267,19 +270,26 @@ function cursorAfterEpisodes(rows) {
   return rows.length > 0 ? rows.length - 1 : 0
 }
 
+// The first language of the subLang list, which is what mostly plays.
+function subsLabel(subLang) {
+  var first = str(subLang).split(",")[0].trim()
+  return first === "" ? "auto" : first
+}
+
 function chips(settings) {
   return [
     "Provider " + settings.provider,
     "Audio " + (settings.dub ? "dub" : "sub"),
     "Quality " + settings.quality,
-    "Subs " + (settings.subSearch ? "on" : "off"),
+    "Subs " + subsLabel(settings.subLang),
+    "Search " + (settings.subSearch ? "on" : "off"),
     "Auto-next " + (settings.autoNext ? "on" : "off")
   ]
 }
 
 if (typeof module !== "undefined") {
   module.exports = {
-    PLUGIN_ID: PLUGIN_ID, PROVIDERS: PROVIDERS, QUALITIES: QUALITIES, DEFAULTS: DEFAULTS,
+    PLUGIN_ID: PLUGIN_ID, PROVIDERS: PROVIDERS, QUALITIES: QUALITIES, SUB_LANGS: SUB_LANGS, DEFAULTS: DEFAULTS,
     GLYPH_IDLE: GLYPH_IDLE, GLYPH_PLAYING: GLYPH_PLAYING, GLYPH_PAUSED: GLYPH_PAUSED,
     boolSetting: boolSetting, intSetting: intSetting, findBarEntry: findBarEntry, settingsFrom: settingsFrom,
     entryFrom: entryFrom, settingsEqual: settingsEqual, cycle: cycle, nextEpisode: nextEpisode, formatTime: formatTime, barLabel: barLabel,

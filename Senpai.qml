@@ -242,6 +242,7 @@ Item {
     if (!root.serviceReady) return false
     if (letter === "p") root.cycleSetting("provider", Model.PROVIDERS)
     else if (letter === "q") root.cycleSetting("quality", Model.QUALITIES)
+    else if (letter === "s") root.cycleSetting("subLang", Model.SUB_LANGS)
     else if (letter === "a") root.service.setSetting("dub", !root.settings.dub)
     else if (letter === "n") root.service.setSetting("autoNext", !root.settings.autoNext)
     else return false
@@ -268,6 +269,7 @@ Item {
     if (event.key === Qt.Key_Escape) { root.back(); return true }
     if (alt && event.key === Qt.Key_P) { root.settingShortcut("p"); return true }
     if (alt && event.key === Qt.Key_Q) { root.settingShortcut("q"); return true }
+    if (alt && event.key === Qt.Key_S) { root.settingShortcut("s"); return true }
     if (alt && event.key === Qt.Key_A) { root.settingShortcut("a"); return true }
     if (alt && event.key === Qt.Key_N) { root.settingShortcut("n"); return true }
     if (ctrl && event.key === Qt.Key_Space) { if (root.serviceReady) root.service.togglePause(); return true }
@@ -534,7 +536,7 @@ Item {
             }
             Text {
               width: parent.width
-              text: "Enter play · Esc back · Ctrl+D download · Ctrl+Shift+D range · Alt+P provider · Alt+A audio · Alt+Q quality · Alt+N auto-next · Ctrl+Space pause · Ctrl+N next · Ctrl+S stop"
+              text: "Enter play · Esc back · Ctrl+D download · Ctrl+Shift+D range · Alt+P provider · Alt+A audio · Alt+Q quality · Alt+S subs · Alt+N auto-next · Ctrl+Space pause · Ctrl+N next · Ctrl+S stop"
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption

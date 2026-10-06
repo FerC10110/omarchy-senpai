@@ -55,6 +55,7 @@ recent anime; typing searches.
 | `Ctrl+D` | download the highlighted episode |
 | `Ctrl+Shift+D` | download a range: type `1-12` or `3,5` and press `Enter` |
 | `Alt+P` / `Alt+A` / `Alt+Q` / `Alt+N` | cycle provider / audio (sub, dub) / quality / auto-next |
+| `Alt+S` | cycle the subtitle languages: `latino,es,en` → `es,en` → `en` |
 | `Ctrl+Space` / `Ctrl+N` / `Ctrl+S` | pause, next episode, stop |
 
 Bar widget: left click opens the finder, right click pauses/resumes, middle
@@ -86,6 +87,10 @@ Right-click the bar → *Edit widgets* (or edit the entry in
 | `aniPyPath` | `` | use another `ani_py.py` instead of the bundled copy |
 
 The `Alt+…` keys in the finder change the same settings and persist them.
+`Alt+S` walks three presets; a custom `subLang` list goes back to
+`latino,es,en` on the first press. The footer chips show the first
+subtitle language ("Subs latino") and whether the external subtitle search
+is on ("Search on").
 
 ## How it works
 

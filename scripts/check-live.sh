@@ -33,6 +33,20 @@ if command -v wtype >/dev/null 2>&1; then
 else
   echo "wtype not installed: skipped"
 fi
+say "shell: Alt+S walks the subtitle presets"
+sublang() { omarchy-shell shell call "$ID" stateJson "" | python3 -c 'import json,sys; print(json.load(sys.stdin)["settings"]["subLang"])'; }
+before=$(sublang)
+case "$before" in
+  "latino,es,en"|"es,en"|"en")
+    omarchy-shell shell call "$ID" pressKey "alt+s" >/dev/null; sleep 0.2
+    echo "subLang: $before -> $(sublang)"
+    for _ in 1 2 3; do
+      [ "$(sublang)" = "$before" ] && break
+      omarchy-shell shell call "$ID" pressKey "alt+s" >/dev/null; sleep 0.5
+    done
+    echo "subLang restored: $(sublang)" ;;
+  *) echo "custom subLang '$before': skipped so it is not replaced" ;;
+esac
 say "shell: type a query"
 omarchy-shell shell call "$ID" setQuery "frieren"
 sleep 4
