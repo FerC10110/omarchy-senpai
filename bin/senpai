@@ -132,6 +132,211 @@ def home_from(entries) -> dict:
     return {"continue": continue_entry(entries), "recent": recent_entries(entries)}
 
 
+# ---------- processes
+
+def pid_alive(pid: int) -> bool:
+    if not pid or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def mpv_command(socket_path: str, command) -> bool:
+    """Send one command to mpv's IPC socket; False when nobody listens."""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1.0)
+            sock.connect(socket_path)
+            sock.sendall((json.dumps({"command": command}) + "\n").encode("utf-8"))
+    except OSError:
+        return False
+    return True
+
+
+def default_download_dir() -> Path:
+    videos = Path.home() / "Videos" / "anime"
+    return videos if videos.is_dir() else Path.home() / "Downloads"
+
+
+def playback_argv(opts, download: bool) -> list:
+    argv = ["--json", "--headless", "--select", f"{opts.provider_name}:{opts.id}", "-e", opts.episode]
+    if opts.title:
+        argv += ["--title", opts.title]
+    if download:
+        argv.append("-d")
+    else:
+        argv += ["--ipc-socket", str(runtime_dir() / "mpv.sock")]
+    if opts.sub_lang:
+        argv += ["--sub-lang", opts.sub_lang]
+    if opts.quality:
+        argv += ["-q", opts.quality]
+    if opts.dub:
+        argv.append("--dub")
+    if opts.auto_next and not download:
+        argv.append("--auto-next")
+    if opts.no_sub_search:
+        argv.append("--no-sub-search")
+    if opts.skip and not download:
+        argv.append("--skip")
+    return argv
+
+
+def spawn_supervisor(kind: str, state_file: Path, meta: dict, events: Path, log: Path, label: str, argv, env, cwd: Path) -> int:
+    """Start `_supervise` in its own session so it outlives the shell and this process."""
+    # Options first: the REMAINDER positional would otherwise swallow them.
+    cmd = [
+        sys.executable, str(HELPER), "_supervise",
+        "--meta", json.dumps(meta), "--events", str(events), "--log", str(log), "--label", label,
+        kind, str(state_file), "--", *argv,
+    ]
+    proc = subprocess.Popen(
+        cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True, env=env, cwd=str(cwd),
+    )
+    return proc.pid
+
+
+def wait_for_state(state_file: Path, pid: int, seconds: float = 2.0) -> None:
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        state = read_json(state_file)
+        if state and state.get("pid") == pid:
+            return
+        time.sleep(0.05)
+
+
+def stop_playback(root: Path) -> bool:
+    """Quit mpv through its socket, then make sure the supervisor is gone."""
+    state_file = root / "now-playing.json"
+    state = read_json(state_file)
+    if not state:
+        return False
+    pid = int(state.get("pid") or 0)
+    mpv_command(str(state.get("socket") or root / "mpv.sock"), ["quit"])
+    deadline = time.time() + STOP_GRACE
+    while time.time() < deadline and pid_alive(pid):
+        time.sleep(0.1)
+    if pid_alive(pid):
+        try:
+            # The supervisor turns SIGTERM into SIGINT for ani-py, which stops mpv.
+            os.killpg(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        deadline = time.time() + STOP_GRACE
+        while time.time() < deadline and pid_alive(pid):
+            time.sleep(0.1)
+    state_file.unlink(missing_ok=True)
+    return True
+
+
+def notify(message: str) -> None:
+    try:
+        subprocess.run(["notify-send", "Senpai", message], stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def cmd_play(opts) -> dict:
+    root = runtime_dir()
+    script = ani_py_path(opts.ani_py)
+    stop_playback(root)
+    title = opts.title or opts.id
+    meta = {
+        "provider": opts.provider_name, "id": opts.id, "title": title, "episode": opts.episode,
+        "socket": str(root / "mpv.sock"),
+    }
+    argv = [sys.executable, str(script), *playback_argv(opts, download=False)]
+    state_file = root / "now-playing.json"
+    pid = spawn_supervisor("play", state_file, meta, root / "events.jsonl", root / "ani-py.log",
+                           f"{title} {opts.episode}", argv, dict(os.environ), Path.home())
+    wait_for_state(state_file, pid)
+    return {"ok": True, "pid": pid}
+
+
+def cmd_download(opts) -> dict:
+    root = runtime_dir()
+    script = ani_py_path(opts.ani_py)
+    title = opts.title or opts.id
+    ident = f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+    meta = {"id": ident, "provider": opts.provider_name, "animeId": opts.id, "title": title, "episodes": opts.episode}
+    env = dict(os.environ)
+    env["ANI_PY_DOWNLOAD_DIR"] = opts.download_dir or str(default_download_dir())
+    argv = [sys.executable, str(script), *playback_argv(opts, download=True)]
+    state_file = root / "downloads" / f"{ident}.json"
+    target = Path(env["ANI_PY_DOWNLOAD_DIR"])
+    pid = spawn_supervisor("download", state_file, meta, root / "downloads" / f"{ident}.jsonl",
+                           root / "downloads" / f"{ident}.log", f"{title} {opts.episode}", argv, env,
+                           target if target.is_dir() else Path.home())
+    wait_for_state(state_file, pid)
+    return {"ok": True, "id": ident, "pid": pid}
+
+
+def cmd_continue(opts) -> dict:
+    entry = cmd_home(opts)["continue"]
+    if not entry:
+        raise SenpaiError("History is empty.")
+    opts.provider_name = entry["provider"]
+    opts.id = entry["id"]
+    opts.title = entry.get("title") or entry["id"]
+    opts.episode = str(entry["episode"])
+    return cmd_play(opts)
+
+
+def cmd_stop(opts) -> dict:
+    return {"ok": True, "stopped": stop_playback(runtime_dir())}
+
+
+def cmd_status(opts) -> dict:
+    root = runtime_dir()
+    playing = read_json(root / "now-playing.json")
+    if playing and not pid_alive(int(playing.get("pid") or 0)):
+        (root / "now-playing.json").unlink(missing_ok=True)
+        playing = None
+    downloads = []
+    for path in sorted((root / "downloads").glob("*.json"), reverse=True)[:DOWNLOAD_LIMIT]:
+        item = read_json(path)
+        if not isinstance(item, dict):
+            continue
+        if item.get("state") == "running" and not pid_alive(int(item.get("pid") or 0)):
+            item["state"] = "failed"
+        downloads.append(item)
+    return {"playing": playing, "downloads": downloads}
+
+
+def cmd_supervise(opts) -> dict:
+    """Run ani-py to the end, keep its output, record how it went."""
+    state_file = Path(opts.state_file)
+    state = dict(json.loads(opts.meta) if opts.meta else {})
+    state.update(pid=os.getpid(), state="running", startedAt=time.time())
+    write_json(state_file, state)
+    argv = opts.argv[1:] if opts.argv and opts.argv[0] == "--" else opts.argv
+    with open(opts.events, "w", encoding="utf-8") as events, open(opts.log, "w", encoding="utf-8") as log:
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=events, stderr=log)
+
+        def forward(signum, frame):
+            # ani-py stops mpv on KeyboardInterrupt; a plain SIGTERM would leave it running.
+            proc.send_signal(signal.SIGINT)
+
+        signal.signal(signal.SIGTERM, forward)
+        signal.signal(signal.SIGINT, forward)
+        rc = proc.wait()
+    if opts.kind == "play":
+        current = read_json(state_file)
+        if current and current.get("pid") == os.getpid():
+            state_file.unlink(missing_ok=True)
+    else:
+        state.update(state="done" if rc == 0 else "failed", rc=rc, endedAt=time.time())
+        write_json(state_file, state)
+        notify(f"{opts.label} downloaded" if rc == 0 else f"{opts.label} download failed")
+    return {"ok": rc == 0, "rc": rc}
+
+
 # ---------- commands
 
 def cmd_search(opts) -> dict:
@@ -172,6 +377,40 @@ def build_parser() -> argparse.ArgumentParser:
 
     home = sub.add_parser("home", help="what to continue and what was watched recently")
     home.set_defaults(run=cmd_home)
+
+    playback = argparse.ArgumentParser(add_help=False)
+    playback.add_argument("--sub-lang", dest="sub_lang")
+    playback.add_argument("--quality")
+    playback.add_argument("--dub", action="store_true")
+    playback.add_argument("--auto-next", dest="auto_next", action="store_true")
+    playback.add_argument("--no-sub-search", dest="no_sub_search", action="store_true")
+    playback.add_argument("--skip", action="store_true")
+    playback.add_argument("--download-dir", dest="download_dir")
+
+    for name, runner, text in (("play", cmd_play, "play an episode (or a range) in mpv"),
+                               ("download", cmd_download, "download an episode or a range")):
+        command = sub.add_parser(name, parents=[playback], help=text)
+        command.add_argument("provider_name")
+        command.add_argument("id")
+        command.add_argument("-e", "--episode", required=True)
+        command.add_argument("--title")
+        command.set_defaults(run=runner)
+
+    cont = sub.add_parser("continue", parents=[playback], help="play the next episode of the last anime")
+    cont.set_defaults(run=cmd_continue)
+
+    sub.add_parser("stop", help="stop the current playback").set_defaults(run=cmd_stop)
+    sub.add_parser("status", help="what is playing and downloading").set_defaults(run=cmd_status)
+
+    supervise = sub.add_parser("_supervise")
+    supervise.add_argument("kind", choices=["play", "download"])
+    supervise.add_argument("state_file")
+    supervise.add_argument("--meta", default="")
+    supervise.add_argument("--events", required=True)
+    supervise.add_argument("--log", required=True)
+    supervise.add_argument("--label", default="")
+    supervise.add_argument("argv", nargs=argparse.REMAINDER)
+    supervise.set_defaults(run=cmd_supervise)
     return parser
 
 
