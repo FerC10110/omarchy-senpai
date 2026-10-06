@@ -46,7 +46,49 @@ def ani_py_path(override: str | None) -> Path:
     path = Path(override or os.environ.get("SENPAI_ANI_PY") or HELPER.parent / "ani_py.py")
     if not path.is_file():
         raise SenpaiError(f"ani_py.py not found at {path}")
+    # An older copy (the aniPyPath setting) has no machine-readable mode.
+    if b"--headless" not in path.read_bytes():
+        raise SenpaiError(f"{path} has no --headless mode; update ani-py or clear the aniPyPath setting")
     return path
+
+
+def read_events(path: Path) -> list:
+    """The JSON lines ani-py wrote; half-written or foreign lines are skipped."""
+    out = []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    item = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(item, dict):
+                    out.append(item)
+    except OSError:
+        pass
+    return out
+
+
+def latest_playing(events: list):
+    found = None
+    for item in events:
+        if item.get("event") == "playing":
+            found = item
+        elif item.get("event") == "ended":
+            found = None
+    return found
+
+
+def failure_reason(events: list, rc: int) -> str:
+    for item in reversed(events):
+        if item.get("event") == "error" and item.get("message"):
+            return str(item["message"])
+        if "error" in item and item.get("error"):
+            return str(item["error"])
+    for item in reversed(events):
+        if item.get("event") == "stopped" and item.get("reason"):
+            return str(item["reason"])
+    return f"exit code {rc}"
 
 
 def read_json(path: Path):
@@ -217,14 +259,17 @@ def stop_playback(root: Path) -> bool:
     if not state:
         return False
     pid = int(state.get("pid") or 0)
-    mpv_command(str(state.get("socket") or root / "mpv.sock"), ["quit"])
+    socket_path = str(state.get("socket") or root / "mpv.sock")
+    # mpv may still be starting: keep asking it to quit during the grace period.
     deadline = time.time() + STOP_GRACE
     while time.time() < deadline and pid_alive(pid):
-        time.sleep(0.1)
+        mpv_command(socket_path, ["quit"])
+        time.sleep(0.25)
     if pid_alive(pid):
         try:
-            # The supervisor turns SIGTERM into SIGINT for ani-py, which stops mpv.
-            os.killpg(pid, signal.SIGTERM)
+            # Only the supervisor: it turns SIGTERM into SIGINT for ani-py,
+            # which stops mpv. A group-wide SIGTERM would kill ani-py outright.
+            os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
         deadline = time.time() + STOP_GRACE
@@ -298,6 +343,13 @@ def cmd_status(opts) -> dict:
     if playing and not pid_alive(int(playing.get("pid") or 0)):
         (root / "now-playing.json").unlink(missing_ok=True)
         playing = None
+    if playing:
+        # Under --auto-next or a range the episode on screen moves on.
+        current = latest_playing(read_events(root / "events.jsonl"))
+        if current and current.get("episode"):
+            playing["episode"] = str(current["episode"])
+            if current.get("title"):
+                playing["title"] = str(current["title"])
     downloads = []
     for path in sorted((root / "downloads").glob("*.json"), reverse=True)[:DOWNLOAD_LIMIT]:
         item = read_json(path)
@@ -330,6 +382,14 @@ def cmd_supervise(opts) -> dict:
         current = read_json(state_file)
         if current and current.get("pid") == os.getpid():
             state_file.unlink(missing_ok=True)
+        events = read_events(Path(opts.events))
+        started = any(item.get("event") == "playing" for item in events)
+        user_stopped = any(
+            item.get("event") == "stopped" and item.get("reason") in ("closed", "interrupted") for item in events
+        )
+        if (rc != 0 or not started) and not user_stopped:
+            # Nothing on screen tells the user why mpv never came up.
+            notify(f"{opts.label} could not be played: {failure_reason(events, rc)}")
     else:
         state.update(state="done" if rc == 0 else "failed", rc=rc, endedAt=time.time())
         write_json(state_file, state)

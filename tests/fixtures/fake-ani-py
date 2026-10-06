@@ -62,8 +62,9 @@ if "--headless" in argv:
                   {"event": "completed", "episode": "1"}, {"event": "ended", "rc": 0}]
     try:
         for event in events:
+            pause = float(event.pop("sleep", delay))
             print(json.dumps(event), flush=True)
-            time.sleep(delay)
+            time.sleep(pause)
     except KeyboardInterrupt:
         print(json.dumps({"event": "stopped", "episode": "1", "reason": "closed"}), flush=True)
         print(json.dumps({"event": "ended", "rc": 0}), flush=True)

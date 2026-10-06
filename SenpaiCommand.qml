@@ -1,77 +1,109 @@
 import QtQuick
 import Quickshell.Io
 
-// One run of bin/senpai at a time: keeps what it printed, reports once the
-// process is gone, and stops a run that outlives its deadline so a dead
-// network never leaves the overlay waiting (spec §7).
+// One bin/senpai call at a time, with a policy for what a second start()
+// means while one is still running: "replace" abandons the running call
+// (its result is dropped: a newer search supersedes an older one) and
+// "queue" runs the new call after the current one (user actions keep their
+// order). Every run has a deadline so a dead network never freezes the UI.
 Item {
   id: command
 
   property string program: ""
   property int timeoutMs: 45000
+  property string policy: "replace"      // replace | queue
   property bool pending: false
 
   signal finished(int code, string out, string err)
 
-  property string _out: ""
-  property string _err: ""
-  property int _code: 0
-  property bool _exited: false
-  property bool _outDone: false
-  property bool _errDone: false
-  property bool _timedOut: false
+  property int _gen: 0
+  property var _run: null
+  property var _queued: null
 
   function start(args) {
-    if (pending) return false
-    _out = ""
-    _err = ""
-    _code = 0
-    _exited = false
-    _outDone = false
-    _errDone = false
-    _timedOut = false
-    pending = true
-    proc.command = ["python3", program].concat(args)
-    proc.running = true
-    watchdog.restart()
+    if (pending) {
+      if (policy === "queue") { _queued = args; return true }
+      _abandon()
+    }
+    _launch(args)
     return true
   }
 
-  function _finish() {
-    if (!pending) return
+  function _launch(args) {
+    _gen += 1
+    pending = true
+    var run = runComponent.createObject(command, { gen: _gen, command: ["python3", program].concat(args) })
+    _run = run
+    run.running = true
+    watchdog.restart()
+  }
+
+  function _abandon() {
+    var run = _run
+    _run = null
     pending = false
     watchdog.stop()
     settle.stop()
-    if (_timedOut) finished(1, "", "senpai: took too long and was stopped")
-    else finished(_code, _out, _err)
+    if (run && !run.done) { run.done = true; run.running = false; run.destroy() }
   }
 
-  function _maybeFinish() {
-    if (_exited && _outDone && _errDone) _finish()
+  function _settle(run) {
+    if (run.done) return
+    if (run !== _run) { run.done = true; run.destroy(); return }
+    if (!run.timedOut && !(run.exited && run.outDone && run.errDone)) return
+    run.done = true
+    _run = null
+    pending = false
+    watchdog.stop()
+    settle.stop()
+    var code = run.timedOut ? 1 : run.code
+    var out = run.timedOut ? "" : run.out
+    var err = run.timedOut ? "senpai: took too long and was stopped" : run.err
+    if (run.timedOut) run.running = false
+    run.destroy()
+    finished(code, out, err)
+    if (_queued !== null) { var next = _queued; _queued = null; _launch(next) }
   }
 
-  Process {
-    id: proc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: { command._out = String(text || ""); command._outDone = true; command._maybeFinish() }
-    }
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: { command._err = String(text || ""); command._errDone = true; command._maybeFinish() }
-    }
-    onExited: function(exitCode) {
-      command._code = exitCode
-      command._exited = true
-      command._maybeFinish()
-      settle.restart()
+  Component {
+    id: runComponent
+    Process {
+      id: run
+      property int gen: 0
+      property bool done: false
+      property bool timedOut: false
+      property string out: ""
+      property string err: ""
+      property int code: 0
+      property bool exited: false
+      property bool outDone: false
+      property bool errDone: false
+      stdout: StdioCollector {
+        waitForEnd: true
+        onStreamFinished: { run.out = String(text || ""); run.outDone = true; command._settle(run) }
+      }
+      stderr: StdioCollector {
+        waitForEnd: true
+        onStreamFinished: { run.err = String(text || ""); run.errDone = true; command._settle(run) }
+      }
+      onExited: function(exitCode) {
+        run.code = exitCode
+        run.exited = true
+        command._settle(run)
+        if (!run.done) settle.restart()
+      }
     }
   }
 
-  Timer { id: settle; interval: 250; onTriggered: command._finish() }
+  // The streams normally report right after exit; if they never do, deliver anyway.
+  Timer {
+    id: settle
+    interval: 250
+    onTriggered: { var run = command._run; if (run && run.exited) { run.outDone = true; run.errDone = true; command._settle(run) } }
+  }
   Timer {
     id: watchdog
     interval: command.timeoutMs
-    onTriggered: { command._timedOut = true; proc.running = false; settle.restart() }
+    onTriggered: { var run = command._run; if (run) { run.timedOut = true; command._settle(run) } }
   }
 }

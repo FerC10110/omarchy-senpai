@@ -199,6 +199,23 @@ function latestPlaying(events) {
   return found
 }
 
+function withLatestEpisode(playing, latest) {
+  if (!playing || !latest || !latest.episode) return playing
+  var next = {}
+  for (var key in playing) if (Object.prototype.hasOwnProperty.call(playing, key)) next[key] = playing[key]
+  next.episode = str(latest.episode)
+  if (latest.title) next.title = str(latest.title)
+  return next
+}
+
+function latestError(events) {
+  var found = ""
+  for (var i = 0; i < events.length; i++) {
+    if (events[i].event === "error" && events[i].message) found = str(events[i].message)
+  }
+  return found
+}
+
 function mpvLine(state, line) {
   var msg
   try { msg = JSON.parse(line) } catch (e) { return state }
@@ -261,6 +278,7 @@ if (typeof module !== "undefined") {
     tooltip: tooltip, homeRows: homeRows, resultRows: resultRows, episodeMark: episodeMark, episodeRows: episodeRows,
     jumpIndex: jumpIndex, clampIndex: clampIndex, parseEvents: parseEvents, latestPlaying: latestPlaying,
     mpvLine: mpvLine, playArgs: playArgs, countRunning: countRunning, downloadLine: downloadLine,
-    nowPlayingLine: nowPlayingLine, cursorAfterEpisodes: cursorAfterEpisodes, chips: chips
+    nowPlayingLine: nowPlayingLine, cursorAfterEpisodes: cursorAfterEpisodes, chips: chips,
+    withLatestEpisode: withLatestEpisode, latestError: latestError
   }
 }

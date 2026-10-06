@@ -175,6 +175,42 @@ class TestPlayback(HelperCase):
         self.assertEqual(stopped, {"ok": True, "stopped": True})
         self.assertTrue(wait_for(lambda: not helper.pid_alive(payload["pid"])))
         self.assertFalse((self.run_dir() / "now-playing.json").exists())
+        # ani-py was interrupted, not killed: it got to stop its player and say so.
+        events = [json.loads(l) for l in (self.run_dir() / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([e["event"] for e in events][-2:], ["stopped", "ended"])
+
+    def test_a_play_that_fails_before_starting_is_notified(self):
+        events = json.dumps([{"event": "error", "message": "No episodes were found."}, {"event": "ended", "rc": 1}])
+        self.senpai(*self.PLAY, FAKE_EVENTS=events)
+        self.assertTrue(wait_for(lambda: not (self.run_dir() / "now-playing.json").exists()))
+        self.assertTrue(wait_for(lambda: (self.tmp / "notify.log").exists()))
+        text = (self.tmp / "notify.log").read_text(encoding="utf-8")
+        self.assertIn("One Piece 4 could not be played", text)
+        self.assertIn("No episodes were found.", text)
+
+    def test_a_play_the_user_stopped_is_not_an_error(self):
+        self.senpai(*self.PLAY, FAKE_SLEEP="30")
+        self.senpai("stop")
+        time.sleep(0.5)
+        self.assertFalse((self.tmp / "notify.log").exists())
+
+    def test_status_reports_the_episode_actually_playing(self):
+        events = json.dumps([
+            {"event": "playing", "episode": "4", "title": "One Piece", "sleep": 0},
+            {"event": "playing", "episode": "5", "title": "One Piece", "sleep": 30},
+        ])
+        self.senpai(*self.PLAY, FAKE_EVENTS=events)
+        self.assertTrue(wait_for(lambda: '"5"' in ((self.run_dir() / "events.jsonl").read_text(encoding="utf-8") if (self.run_dir() / "events.jsonl").exists() else "")))
+        _, payload, _ = self.senpai("status")
+        self.assertEqual(payload["playing"]["episode"], "5")
+        self.senpai("stop")
+
+    def test_an_ani_py_without_headless_is_rejected(self):
+        old = self.tmp / "old_ani_py.py"
+        old.write_text("print('ani-py 0.5.2')\n", encoding="utf-8")
+        rc, payload, _ = self.senpai("search", "x", SENPAI_ANI_PY=str(old))
+        self.assertEqual(rc, 1)
+        self.assertIn("--headless", payload["error"])
 
     def test_stop_with_nothing_playing_is_fine(self):
         rc, payload, _ = self.senpai("stop")

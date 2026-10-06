@@ -162,3 +162,20 @@ test("chips describe the settings in order", () => {
   assert.deepEqual(chips, ["Provider auto", "Audio dub", "Quality 720", "Subs off", "Auto-next on"])
   assert.deepEqual(Model.chips(Model.DEFAULTS), ["Provider auto", "Audio sub", "Quality best", "Subs on", "Auto-next off"])
 })
+
+test("withLatestEpisode follows the episode ani-py reports under auto-next", () => {
+  const playing = { provider: "hianime", id: "one-piece-1", title: "One Piece", episode: "4", pid: 1 }
+  const moved = Model.withLatestEpisode(playing, { event: "playing", episode: "5", title: "One Piece" })
+  assert.equal(moved.episode, "5")
+  assert.equal(moved.pid, 1)
+  assert.equal(playing.episode, "4")                         // the input is not mutated
+  assert.equal(Model.withLatestEpisode(playing, null), playing)
+  assert.equal(Model.withLatestEpisode(null, { event: "playing", episode: "5" }), null)
+})
+
+test("latestError reports the last error event until ended", () => {
+  const events = [{ event: "resolving", episode: "4" }, { event: "error", message: "No episodes were found." }, { event: "ended", rc: 1 }]
+  assert.equal(Model.latestError(events), "No episodes were found.")
+  assert.equal(Model.latestError([{ event: "playing", episode: "4" }]), "")
+  assert.equal(Model.latestError([]), "")
+})

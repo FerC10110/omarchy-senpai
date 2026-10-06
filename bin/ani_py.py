@@ -157,6 +157,15 @@ def json_output() -> bool:
     return _JSON_OUTPUT
 
 
+_HEADLESS_EVENTS = False
+
+
+def set_headless_events(enabled: bool) -> None:
+    """--headless --json: failures are reported as events, so `ended` stays the last line."""
+    global _HEADLESS_EVENTS
+    _HEADLESS_EVENTS = enabled
+
+
 def emit(payload: dict) -> None:
     """One JSON object per line; the only thing stdout carries in --json mode."""
     print(json.dumps(payload, ensure_ascii=False), flush=True)
@@ -196,7 +205,10 @@ def warn(message: str) -> None:
 
 def fail(message: str, code: int = 1) -> NoReturn:
     print(f"{sty('error', C.BOLD, C.RED)}  {message}", file=sys.stderr)
-    if _JSON_OUTPUT:
+    if _JSON_OUTPUT and _HEADLESS_EVENTS:
+        emit({"event": "error", "message": message})
+        emit({"event": "ended", "rc": code})
+    elif _JSON_OUTPUT:
         emit({"error": message})
     raise SystemExit(code)
 
@@ -4833,6 +4845,7 @@ def format_episode_rows(episodes: Sequence[Episode]) -> tuple[list[str], dict[st
 class App:
     def __init__(self, args: argparse.Namespace) -> None:
         set_json_output(bool(getattr(args, "json", False)))
+        set_headless_events(json_output() and bool(getattr(args, "headless", False)))
         error = subtitle_preference_error(getattr(args, "sub_lang", None))
         if error:
             fail(error)
@@ -5796,8 +5809,17 @@ class App:
         # Completion comes from mpv's end-file event, which needs mpv to end
         # files rather than pause on them (same as --auto-next).
         self.playback.event_completion = True
+
+        def terminated(signum: int, frame: object) -> None:
+            # A front end stops us with SIGTERM; leaving through SystemExit
+            # runs the handler below, which stops mpv instead of orphaning it.
+            raise SystemExit(128 + signum)
+
+        previous = signal.signal(signal.SIGTERM, terminated)
+        current: Optional[Episode] = None
         try:
             for index, episode in enumerate(queue, 1):
+                current = episode
                 self._event("resolving", episode=episode.number, index=index, total=total)
                 rc = self._play_episode(anime, episode, quality, replace=index > 1, keep_open=True)
                 if rc != 0:
@@ -5826,8 +5848,13 @@ class App:
                 rc = 0 if completion == "closed" else 1
                 break
         except (KeyboardInterrupt, SystemExit):
+            if current is not None:
+                self._event("stopped", episode=current.number, reason="interrupted")
+            self._event("ended", rc=130)
             self.playback.stop()
             raise
+        finally:
+            signal.signal(signal.SIGTERM, previous)
         self.playback.stop()
         self._event("ended", rc=rc)
         return rc
@@ -5997,6 +6024,8 @@ class App:
 
         if getattr(self.args, "list_episodes", False):
             return self._print_episodes(anime)
+        if json_output() and not getattr(self.args, "episode", None):
+            fail("--json needs -e/--episode, --list-episodes or --headless.")
 
         anime, episodes, selected = self._pick_episodes(anime, continue_after, continue_completed)
 

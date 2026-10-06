@@ -99,6 +99,7 @@ Item {
   function stateJson() {
     return JSON.stringify({ mode: root.mode, query: root.query, cursor: root.cursor, rows: root.rows.length,
                             anime: root.anime, busy: root.busy, error: root.errorText,
+                            first: root.rows.length > 0 ? String(root.rows[0].title || "") : "",
                             playing: root.playing ? root.service.playing : null,
                             paused: root.playing ? root.service.paused : false,
                             position: root.playing ? root.service.position : 0,

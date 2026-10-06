@@ -125,8 +125,12 @@ Item {
 
   // play / download / stop / continue share one runner: they are user
   // actions, one at a time.
+  // Set by a play request; the events file may then carry the reason it failed.
+  property bool playRequested: false
+
   function play(provider, id, title, episode) {
     root.lastError = ""
+    root.playRequested = true
     actionCmd.start(helperArgs(["play", provider, id, "-e", String(episode), "--title", title].concat(Model.playArgs(root.settings))))
   }
   function download(provider, id, title, spec) {
@@ -135,6 +139,7 @@ Item {
   }
   function continueWatching() {
     root.lastError = ""
+    root.playRequested = true
     actionCmd.start(helperArgs(["continue"].concat(Model.playArgs(root.settings))))
   }
   function stop() {
@@ -148,6 +153,7 @@ Item {
     id: actionCmd
     program: root.helperPath
     timeoutMs: 20000
+    policy: "queue"
     onFinished: function(code, out, err) {
       var payload = root.parseOut(out)
       if (code !== 0 || !payload || payload.error) root.reportError(payload, err)
@@ -205,8 +211,16 @@ Item {
     watchChanges: true
     printErrors: false
     onLoaded: {
-      var latest = Model.latestPlaying(Model.parseEvents(text()))
+      var events = Model.parseEvents(text())
+      var latest = Model.latestPlaying(events)
       root.subtitle = latest && latest.subtitle ? latest.subtitle : null
+      // Under --auto-next the episode on screen moves on; the label follows.
+      if (latest && root.playing) root.playing = Model.withLatestEpisode(root.playing, latest)
+      if (root.playRequested) {
+        var error = Model.latestError(events)
+        if (error) { root.lastError = error; root.playRequested = false }
+        else if (latest) root.playRequested = false
+      }
     }
   }
 

@@ -23,6 +23,15 @@ omarchy-shell shell call "$ID" setQuery "frieren"
 sleep 4
 omarchy-shell shell call "$ID" stateJson ""
 echo
+say "shell: a newer query supersedes a slower one"
+omarchy-shell shell call "$ID" setQuery "one"
+sleep 0.6
+omarchy-shell shell call "$ID" setQuery "one punch man"
+sleep 6
+omarchy-shell shell call "$ID" stateJson ""
+echo
+omarchy-shell shell call "$ID" setQuery "frieren"
+sleep 4
 say "shell: open episodes"
 omarchy-shell shell call "$ID" pressKey "enter"
 sleep 4
