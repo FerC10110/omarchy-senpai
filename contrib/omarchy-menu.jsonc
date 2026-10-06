@@ -2,7 +2,7 @@
 // ~/.config/omarchy/extensions/omarchy-menu.jsonc (ids are object keys; the
 // dotted ids become rows of the "senpai" submenu).
 {
-  "senpai": {"icon": "", "label": "Senpai", "description": "Anime: search, continue, download", "aliases": ["anime", "ani-py"]},
+  "senpai": {"icon": "", "label": "Senpai", "description": "Anime: search, continue, watch", "aliases": ["anime", "ani-py"]},
   "senpai.open": {"icon": "", "label": "Find anime", "action": "omarchy-shell shell toggle io.github.ferc10110.senpai"},
   "senpai.continue": {"icon": "", "label": "Continue watching",
     "action": "python3 $HOME/.config/omarchy/plugins/io.github.ferc10110.senpai/bin/senpai continue"},

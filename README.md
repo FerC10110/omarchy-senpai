@@ -1,21 +1,21 @@
 # Senpai
 
-Anime from the Omarchy bar: search, continue, download. [ani-py](https://github.com/ferc10110/ani-py)
-with Latin American subtitles, played in mpv.
+Anime from the Omarchy bar: search, pick up where you left off, watch in mpv.
+[ani-py](https://github.com/ferc10110/ani-py) with Latin American subtitles.
 
 ![Senpai finder](preview.png)
 
-A bar widget shows what is playing; a finder overlay searches HiAnime,
-AnimeAV1 and AnimeFLV, lists episodes with what you have already watched,
-plays the one you pick in mpv (with `latino`/`es`/`en` subtitles looked up
-when the provider has none) and downloads single episodes or ranges in the
+A bar widget shows what is playing; a finder overlay searches through
+ani-py, lists episodes with what you have already watched, plays the one you
+pick in mpv (with `latino`/`es`/`en` subtitles looked up when the source has
+none) and can save single episodes or ranges for offline viewing in the
 background. Playback keeps running after the shell restarts.
 
 ## Requirements
 
 - Omarchy 4.0.4 or newer (the Quickshell-based shell)
 - `python3`, `mpv`, `notify-send` (already on Omarchy)
-- `yt-dlp` for downloads (`sudo pacman -S yt-dlp`)
+- `yt-dlp` to save episodes for offline viewing (`sudo pacman -S yt-dlp`)
 
 ## Install
 
@@ -52,20 +52,20 @@ recent anime; typing searches.
 | `Enter` | continue / open episodes / play the highlighted episode |
 | `Esc` | back; closes the finder from home |
 | `↑` `↓` `PgUp` `PgDn` `Home` `End` | move |
-| `Ctrl+D` | download the highlighted episode |
-| `Ctrl+Shift+D` | download a range: type `1-12` or `3,5` and press `Enter` |
+| `Ctrl+D` | save the highlighted episode for offline viewing |
+| `Ctrl+Shift+D` | save a range: type `1-12` or `3,5` and press `Enter` |
 | `Alt+P` / `Alt+A` / `Alt+Q` / `Alt+N` | cycle provider / audio (sub, dub) / quality / auto-next |
 | `Alt+S` | cycle the subtitle languages: `latino,es,en` → `es,en` → `en` |
 | `Ctrl+Space` / `Ctrl+N` / `Ctrl+S` | pause, next episode, stop |
 
 Bar widget: left click opens the finder, right click pauses/resumes, middle
 click stops. While something plays the label shows `Title · episode`; a
-`↓2` suffix counts running downloads. Hover for the position, duration and
-subtitle in use.
+`↓2` suffix counts the episodes being saved. Hover for the position, duration
+and subtitle in use.
 
-Downloads go to `~/Videos/anime` when that folder exists, else `~/Downloads`
-(or the folder in the *Download folder* setting). A notification arrives when
-each one finishes or fails.
+Saved episodes go to `~/Videos/anime` when that folder exists, else
+`~/Downloads` (or the folder in the *Download folder* setting). A
+notification arrives when each one finishes or fails.
 
 ## Settings
 
@@ -143,6 +143,16 @@ rm -rf "$XDG_RUNTIME_DIR/senpai"
 ```
 
 Your watch history stays in `~/.local/state/ani-py/`.
+
+## Disclaimer
+
+Senpai is a front end. It automates what a web browser does when you open
+the sites ani-py supports; it does not host, upload or redistribute any
+video, and nothing in this repository is a copy of a show. What you watch
+or save comes from third-party sites with no relation to this project, and
+whether that is allowed depends on where you live and on each site's terms:
+you are responsible for how you use it. Rights holders should contact the
+sites that serve the content; this project stores none of it.
 
 ## License
 
