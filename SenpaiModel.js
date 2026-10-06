@@ -237,6 +237,21 @@ function nowPlayingLine(playing, paused, position, duration) {
   return (paused ? "⏸ " : "▶ ") + str(playing.title) + " · Ep " + str(playing.episode) + " · " + clock
 }
 
+function cursorAfterEpisodes(rows) {
+  for (var i = 0; i < rows.length; i++) if (rows[i].state !== "watched") return i
+  return rows.length > 0 ? rows.length - 1 : 0
+}
+
+function chips(settings) {
+  return [
+    "Provider " + settings.provider,
+    "Audio " + (settings.dub ? "dub" : "sub"),
+    "Quality " + settings.quality,
+    "Subs " + (settings.subSearch ? "on" : "off"),
+    "Auto-next " + (settings.autoNext ? "on" : "off")
+  ]
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     PLUGIN_ID: PLUGIN_ID, PROVIDERS: PROVIDERS, QUALITIES: QUALITIES, DEFAULTS: DEFAULTS,
@@ -246,6 +261,6 @@ if (typeof module !== "undefined") {
     tooltip: tooltip, homeRows: homeRows, resultRows: resultRows, episodeMark: episodeMark, episodeRows: episodeRows,
     jumpIndex: jumpIndex, clampIndex: clampIndex, parseEvents: parseEvents, latestPlaying: latestPlaying,
     mpvLine: mpvLine, playArgs: playArgs, countRunning: countRunning, downloadLine: downloadLine,
-    nowPlayingLine: nowPlayingLine
+    nowPlayingLine: nowPlayingLine, cursorAfterEpisodes: cursorAfterEpisodes, chips: chips
   }
 }

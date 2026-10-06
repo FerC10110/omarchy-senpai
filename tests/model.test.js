@@ -149,3 +149,16 @@ test("now playing line", () => {
 test("glyphs are single Nerd Font code points", () => {
   for (const g of [Model.GLYPH_IDLE, Model.GLYPH_PLAYING, Model.GLYPH_PAUSED]) assert.equal([...g].length, 1)
 })
+
+test("cursorAfterEpisodes lands on the first episode still to watch", () => {
+  const rows = [{ state: "watched" }, { state: "watched" }, { state: "unfinished" }, { state: "new" }]
+  assert.equal(Model.cursorAfterEpisodes(rows), 2)
+  assert.equal(Model.cursorAfterEpisodes([{ state: "watched" }, { state: "watched" }]), 1)
+  assert.equal(Model.cursorAfterEpisodes([]), 0)
+})
+
+test("chips describe the settings in order", () => {
+  const chips = Model.chips(Object.assign({}, Model.DEFAULTS, { dub: true, quality: "720", autoNext: true, subSearch: false }))
+  assert.deepEqual(chips, ["Provider auto", "Audio dub", "Quality 720", "Subs off", "Auto-next on"])
+  assert.deepEqual(Model.chips(Model.DEFAULTS), ["Provider auto", "Audio sub", "Quality best", "Subs on", "Auto-next off"])
+})
