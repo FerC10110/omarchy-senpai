@@ -7,7 +7,7 @@ import Quickshell.Io
 // "queue" runs the new call after the current one (user actions keep their
 // order). Every run has a deadline so a dead network never freezes the UI.
 Item {
-  id: command
+  id: runner
 
   property string program: ""
   property int timeoutMs: 45000
@@ -32,7 +32,7 @@ Item {
   function _launch(args) {
     _gen += 1
     pending = true
-    var run = runComponent.createObject(command, { gen: _gen, command: ["python3", program].concat(args) })
+    var run = runComponent.createObject(runner, { gen: _gen, command: ["python3", program].concat(args) })
     _run = run
     run.running = true
     watchdog.restart()
@@ -80,16 +80,16 @@ Item {
       property bool errDone: false
       stdout: StdioCollector {
         waitForEnd: true
-        onStreamFinished: { run.out = String(text || ""); run.outDone = true; command._settle(run) }
+        onStreamFinished: { run.out = String(text || ""); run.outDone = true; runner._settle(run) }
       }
       stderr: StdioCollector {
         waitForEnd: true
-        onStreamFinished: { run.err = String(text || ""); run.errDone = true; command._settle(run) }
+        onStreamFinished: { run.err = String(text || ""); run.errDone = true; runner._settle(run) }
       }
       onExited: function(exitCode) {
         run.code = exitCode
         run.exited = true
-        command._settle(run)
+        runner._settle(run)
         if (!run.done) settle.restart()
       }
     }
@@ -99,11 +99,11 @@ Item {
   Timer {
     id: settle
     interval: 250
-    onTriggered: { var run = command._run; if (run && run.exited) { run.outDone = true; run.errDone = true; command._settle(run) } }
+    onTriggered: { var run = runner._run; if (run && run.exited) { run.outDone = true; run.errDone = true; runner._settle(run) } }
   }
   Timer {
     id: watchdog
-    interval: command.timeoutMs
-    onTriggered: { var run = command._run; if (run) { run.timedOut = true; command._settle(run) } }
+    interval: runner.timeoutMs
+    onTriggered: { var run = runner._run; if (run) { run.timedOut = true; runner._settle(run) } }
   }
 }
