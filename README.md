@@ -125,6 +125,9 @@ downgrades and copies with no `--headless` support).
   tests (`node --test`), manifest checks, `omarchy-plugin-validate`
 - `scripts/check-live.sh [preview.png]` — drives the installed plugin through
   `omarchy-shell shell call` and takes a screenshot
+- Omarchy hot-reloads a plugin when its folder changes, but the QML component
+  cache keeps the old files: after editing a `.qml` file run
+  `omarchy-restart-shell` to load it.
 
 ## Uninstall
 
