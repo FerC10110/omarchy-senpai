@@ -98,7 +98,11 @@ Item {
   function setQuery(text) { root.setQueryText(String(text || "")); return "ok" }
   function stateJson() {
     return JSON.stringify({ mode: root.mode, query: root.query, cursor: root.cursor, rows: root.rows.length,
-                            anime: root.anime, busy: root.busy, error: root.errorText })
+                            anime: root.anime, busy: root.busy, error: root.errorText,
+                            playing: root.playing ? root.service.playing : null,
+                            paused: root.playing ? root.service.paused : false,
+                            position: root.playing ? root.service.position : 0,
+                            duration: root.playing ? root.service.duration : 0 })
   }
   function pressKey(name) {
     var n = String(name || "")
@@ -107,6 +111,9 @@ Item {
     else if (n === "enter") root.activate()
     else if (n === "escape") root.back()
     else if (n === "ctrl+d") root.downloadHighlighted()
+    else if (n === "ctrl+space") { if (root.serviceReady) root.service.togglePause() }
+    else if (n === "ctrl+n") { if (root.serviceReady) root.service.next() }
+    else if (n === "ctrl+s") { if (root.serviceReady) root.service.stop() }
     else return "unknown"
     return "ok"
   }
@@ -341,13 +348,15 @@ Item {
               anchors.verticalCenter: parent.verticalCenter
               text: {
                 if (root.mode === "range") return root.rangeText === "" ? "1-12, 3,5" : root.rangeText + "▏"
-                if (root.mode === "episodes") return root.digits !== "" ? "jump " + root.digits : "type a number · Enter plays · Ctrl+D downloads · Ctrl+Shift+D range"
+                if (root.mode === "episodes") return root.digits !== "" ? "jump " + root.digits : "type a number · Enter plays · Ctrl+D downloads"
                 return root.query === "" ? "type to search" : root.query + "▏"
               }
-              color: (root.mode === "range" && root.rangeText === "") || (root.mode === "episodes" && root.digits === "") || (root.mode !== "range" && root.mode !== "episodes" && root.query === "") ? root.dim : root.foreground
+              readonly property bool hint: (root.mode === "range" && root.rangeText === "") || (root.mode === "episodes" && root.digits === "") || (root.mode !== "range" && root.mode !== "episodes" && root.query === "")
+              color: hint ? root.dim : root.foreground
               font.family: root.fontFamily
               font.pixelSize: Style.font.heading
-              elide: Text.ElideLeft
+              // A long query keeps its tail in view; a hint keeps its start.
+              elide: hint ? Text.ElideRight : Text.ElideLeft
             }
             Text {
               id: busyText
