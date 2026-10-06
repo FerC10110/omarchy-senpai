@@ -1,7 +1,7 @@
 # Senpai
 
 Anime from the Omarchy bar: search, pick up where you left off, watch in mpv.
-[ani-py](https://github.com/ferc10110/ani-py) with Latin American subtitles.
+ani-py with Latin American subtitles.
 
 ![Senpai finder](preview.png)
 
