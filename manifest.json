@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.ferc10110.senpai",
+  "name": "Senpai",
+  "version": "0.1.0",
+  "author": "Fernando Cancro",
+  "license": "MIT",
+  "description": "Search, continue and download anime from the bar: ani-py with Latin American subtitles, played in mpv.",
+  "keywords": ["anime", "ani-py", "mpv", "subtitles", "latino"],
+  "kinds": ["bar-widget", "overlay", "service"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "overlay": "Senpai.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Senpai",
+    "description": "Anime glyph plus what is playing. Left click opens the finder, right click pauses, middle click stops.",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "subLang": "latino,es,en",
+      "provider": "auto",
+      "dub": false,
+      "quality": "best",
+      "autoNext": false,
+      "subSearch": true,
+      "skipIntro": false,
+      "downloadDir": "",
+      "showTitleInBar": true,
+      "barLabelMaxWidth": 180,
+      "aniPyPath": ""
+    },
+    "schema": [
+      { "key": "subLang", "type": "string", "label": "Subtitle languages, best first (latino,es,en)" },
+      { "key": "provider", "type": "string", "label": "Provider: auto, hianime, animeav1 or animeflv" },
+      { "key": "dub", "type": "boolean", "label": "Prefer dubbed audio", "defaultValue": false },
+      { "key": "quality", "type": "string", "label": "Quality: best, 1080, 720, 480, 360 or worst" },
+      { "key": "autoNext", "type": "boolean", "label": "Keep playing the following episodes", "defaultValue": false },
+      { "key": "subSearch", "type": "boolean", "label": "Look for missing subtitles in external sources", "defaultValue": true },
+      { "key": "skipIntro", "type": "boolean", "label": "Skip openings with ani-skip", "defaultValue": false },
+      { "key": "downloadDir", "type": "string", "label": "Download folder (empty: ~/Videos/anime or ~/Downloads)" },
+      { "key": "showTitleInBar", "type": "boolean", "label": "Show the title in the bar while playing", "defaultValue": true },
+      { "key": "barLabelMaxWidth", "type": "integer", "label": "Max width of the bar label (px)", "min": 60, "max": 600, "step": 10, "defaultValue": 180 },
+      { "key": "aniPyPath", "type": "string", "label": "Path to another ani_py.py (empty: the bundled copy)" }
+    ]
+  }
+}
