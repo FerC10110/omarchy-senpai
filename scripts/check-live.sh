@@ -61,6 +61,13 @@ omarchy-shell shell call "$ID" stateJson ""
 echo
 omarchy-shell shell call "$ID" setQuery "frieren"
 sleep 4
+say "shell: Ctrl+W keeps the highlighted result for later, a second press drops it"
+later() { omarchy-shell shell call "$ID" stateJson "" | python3 -c 'import json,sys; s=json.load(sys.stdin); print(s["later"], s["cursorKind"])'; }
+before=$(later)
+omarchy-shell shell call "$ID" pressKey "ctrl+w" >/dev/null; sleep 1
+echo "later count, cursor kind: $before -> $(later)  (expected: one more)"
+omarchy-shell shell call "$ID" pressKey "ctrl+w" >/dev/null; sleep 1
+echo "after the second press: $(later)  (expected: back to $before)"
 say "shell: open episodes"
 omarchy-shell shell call "$ID" pressKey "enter"
 sleep 4

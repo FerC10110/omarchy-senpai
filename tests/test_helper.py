@@ -21,6 +21,7 @@ class HelperCase(unittest.TestCase):
             "FAKE_NOTIFY_LOG": str(self.tmp / "notify.log"),
             "PATH": f"{FIXTURES}:{os.environ.get('PATH', '')}",
             "HOME": str(self.tmp),
+            "XDG_STATE_HOME": str(self.tmp / "state"),
         }
 
     def senpai(self, *args, **env):
@@ -75,7 +76,7 @@ class TestReadCommands(HelperCase):
         history = self.tmp / "history.json"
         history.write_text("[]", encoding="utf-8")
         _, payload, _ = self.senpai("home", FAKE_HISTORY=str(history))
-        self.assertEqual(payload, {"continue": None, "recent": []})
+        self.assertEqual(payload, {"continue": None, "recent": [], "later": []})
 
     def test_continue_after_a_half_episode_number(self):
         helper = load_helper()
@@ -287,6 +288,53 @@ class TestDownloads(HelperCase):
         (run / "20260102-000000-1.json").write_text(json.dumps({"id": "20260102-000000-1", "pid": os.getpid(), "state": "done", "title": "New"}), encoding="utf-8")
         _, payload, _ = self.senpai("status")
         self.assertEqual([(d["title"], d["state"]) for d in payload["downloads"]], [("New", "done"), ("Old", "failed")])
+
+
+class TestWatchLater(HelperCase):
+    def later_file(self):
+        return self.tmp / "state" / "senpai" / "watch-later.json"
+
+    def test_later_add_lists_the_newest_first_and_keeps_one_entry_per_anime(self):
+        rc, payload, _ = self.senpai("later", "add", "hianime", "frieren-481", "--title", "Frieren")
+        self.assertEqual((rc, payload), (0, {"ok": True, "kept": True}))
+        self.senpai("later", "add", "animeflv", "one-piece-1", "--title", "One Piece")
+        self.senpai("later", "add", "hianime", "frieren-481", "--title", "Frieren: Beyond Journey's End")
+        _, payload, _ = self.senpai("later", "list")
+        self.assertEqual(
+            [(i["provider"], i["id"], i["title"]) for i in payload["items"]],
+            [("hianime", "frieren-481", "Frieren: Beyond Journey's End"), ("animeflv", "one-piece-1", "One Piece")],
+        )
+        self.assertTrue(self.later_file().exists())
+        self.assertEqual(self.calls(), [])  # the list never needs ani-py
+
+    def test_later_remove_drops_the_anime_and_tolerates_a_missing_one(self):
+        self.senpai("later", "add", "hianime", "frieren-481", "--title", "Frieren")
+        rc, payload, _ = self.senpai("later", "remove", "hianime", "frieren-481")
+        self.assertEqual((rc, payload), (0, {"ok": True, "kept": False}))
+        rc, payload, _ = self.senpai("later", "remove", "hianime", "frieren-481")
+        self.assertEqual((rc, payload), (0, {"ok": True, "kept": False}))
+        _, payload, _ = self.senpai("later", "list")
+        self.assertEqual(payload["items"], [])
+
+    def test_later_list_survives_a_corrupt_file(self):
+        self.later_file().parent.mkdir(parents=True)
+        self.later_file().write_text("{nope", encoding="utf-8")
+        rc, payload, _ = self.senpai("later", "list")
+        self.assertEqual((rc, payload), (0, {"items": []}))
+
+    def test_home_includes_the_later_list(self):
+        self.senpai("later", "add", "animeflv", "nana-7", "--title", "Nana")
+        _, payload, _ = self.senpai("home")
+        self.assertEqual([(i["provider"], i["id"], i["title"]) for i in payload["later"]], [("animeflv", "nana-7", "Nana")])
+
+    def test_playing_an_anime_takes_it_off_the_later_list(self):
+        self.senpai("later", "add", "hianime", "one-piece-100", "--title", "One Piece")
+        self.senpai("later", "add", "animeflv", "nana-7", "--title", "Nana")
+        self.addCleanup(self.senpai, "stop")
+        rc, _, _ = self.senpai("play", "hianime", "one-piece-100", "-e", "1", "--title", "One Piece")
+        self.assertEqual(rc, 0)
+        _, payload, _ = self.senpai("later", "list")
+        self.assertEqual([i["id"] for i in payload["items"]], ["nana-7"])
 
 
 if __name__ == "__main__":

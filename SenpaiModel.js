@@ -13,6 +13,9 @@ var GLYPH_IDLE = ""
 var GLYPH_PLAYING = ""
 var GLYPH_PAUSED = ""
 
+var GLYPH_LATER = ""   // bookmark: kept for later
+var GLYPH_SEARCH = ""  // magnifier, in the search box
+
 var DEFAULTS = {
   subLang: "latino,es,en",
   provider: "auto",
@@ -132,26 +135,46 @@ function tooltip(state) {
   return parts.join(" · ")
 }
 
+// Home: three sections under small headers; a header row is never selectable.
 function homeRows(home) {
   var rows = []
   var cont = home && home.continue ? home.continue : null
-  if (cont) rows.push({ kind: "continue", provider: cont.provider, id: cont.id, title: "Continue · " + str(cont.title),
-                        animeTitle: str(cont.title), episode: str(cont.episode),
-                        subtitle: "Episode " + str(cont.episode) + (cont.resume ? " · resume" : "") })
+  if (cont) {
+    rows.push({ kind: "header", title: "Continue" })
+    rows.push({ kind: "continue", provider: cont.provider, id: cont.id, title: str(cont.title),
+                animeTitle: str(cont.title), episode: str(cont.episode),
+                subtitle: "Episode " + str(cont.episode) + (cont.resume ? " · resume" : "") })
+  }
+  var later = home && Array.isArray(home.later) ? home.later : []
+  if (later.length > 0) rows.push({ kind: "header", title: "Watch later" })
+  for (var l = 0; l < later.length; l++) {
+    var k = later[l]
+    rows.push({ kind: "later", provider: str(k.provider), id: str(k.id), title: str(k.title), animeTitle: str(k.title), subtitle: str(k.provider) })
+  }
   var recent = home && Array.isArray(home.recent) ? home.recent : []
+  if (recent.length > 0) rows.push({ kind: "header", title: "Recent" })
   for (var i = 0; i < recent.length; i++) {
     var r = recent[i]
     rows.push({ kind: "recent", provider: r.provider, id: r.id, title: str(r.title), animeTitle: str(r.title), episode: str(r.episode),
                 subtitle: "Episode " + str(r.episode) + " · " + (r.completed ? "watched" : "unfinished") })
   }
-  if (rows.length === 0) rows.push({ kind: "empty", title: "Nothing watched yet", subtitle: "Type to search" })
+  if (rows.length === 0) rows.push({ kind: "empty", title: "Nothing yet", subtitle: "Type to search · Ctrl+W keeps an anime for later" })
   return rows
 }
 
-function resultRows(payload) {
+// "provider:id" of every anime kept for later, for marking search results.
+function laterKeys(home) {
+  var keys = {}
+  var later = home && Array.isArray(home.later) ? home.later : []
+  for (var i = 0; i < later.length; i++) keys[str(later[i].provider) + ":" + str(later[i].id)] = true
+  return keys
+}
+
+function resultRows(payload, keys) {
   var list = payload && Array.isArray(payload.results) ? payload.results : []
   return list.map(function (r) {
-    return { kind: "result", provider: str(r.provider), id: str(r.id), title: str(r.title), subtitle: str(r.provider) }
+    var later = !!(keys && keys[str(r.provider) + ":" + str(r.id)])
+    return { kind: "result", provider: str(r.provider), id: str(r.id), title: str(r.title), subtitle: str(r.provider), later: later }
   })
 }
 
@@ -270,6 +293,52 @@ function cursorAfterEpisodes(rows) {
   return rows.length > 0 ? rows.length - 1 : 0
 }
 
+function selectable(row) {
+  return !!row && row.kind !== "header" && row.kind !== "empty"
+}
+
+function firstSelectable(rows) {
+  for (var i = 0; i < rows.length; i++) if (selectable(rows[i])) return i
+  return 0
+}
+
+// The cursor after moving `delta` rows from `from`, skipping headers; it never
+// leaves the list, and comes back toward `from` when it would run off the end.
+function stepCursor(rows, from, delta) {
+  if (!rows || rows.length === 0) return 0
+  var dir = delta < 0 ? -1 : 1
+  var target = clampIndex(from + delta, rows.length)
+  var i = target
+  while (i >= 0 && i < rows.length && !selectable(rows[i])) i += dir
+  if (i < 0 || i >= rows.length) {
+    i = target
+    while (i >= 0 && i < rows.length && !selectable(rows[i])) i -= dir
+  }
+  return i >= 0 && i < rows.length && selectable(rows[i]) ? i : from
+}
+
+var SETTINGS_HINT = "Alt+P/A/Q/S/N settings"
+var PLAYBACK_HINT = "Ctrl+Space pause · Ctrl+N next · Ctrl+S stop"
+
+// The footer line: only the keys that do something in this mode.
+function keyHints(mode, playing) {
+  var hints
+  if (mode === "episodes") hints = "Enter play · Ctrl+D save · Ctrl+Shift+D range · Ctrl+W later · Esc back"
+  else if (mode === "range") hints = "Enter save · Esc back"
+  else if (mode === "results") hints = "Enter episodes · Ctrl+W later · Esc home · " + SETTINGS_HINT
+  else hints = "Enter open · Ctrl+W later · Esc close · " + SETTINGS_HINT
+  return playing ? hints + " · " + PLAYBACK_HINT : hints
+}
+
+// The glyph column of a row: play, bookmark, watched, unfinished.
+function rowGlyph(row) {
+  if (!row) return ""
+  if (row.kind === "continue") return "▶"
+  if (row.kind === "later" || row.later === true) return GLYPH_LATER
+  if (row.kind === "episode") return episodeMark(row.state)
+  return ""
+}
+
 // The first language of the subLang list, which is what mostly plays.
 function subsLabel(subLang) {
   var first = str(subLang).split(",")[0].trim()
@@ -290,7 +359,9 @@ function chips(settings) {
 if (typeof module !== "undefined") {
   module.exports = {
     PLUGIN_ID: PLUGIN_ID, PROVIDERS: PROVIDERS, QUALITIES: QUALITIES, SUB_LANGS: SUB_LANGS, DEFAULTS: DEFAULTS,
-    GLYPH_IDLE: GLYPH_IDLE, GLYPH_PLAYING: GLYPH_PLAYING, GLYPH_PAUSED: GLYPH_PAUSED,
+    GLYPH_IDLE: GLYPH_IDLE, GLYPH_PLAYING: GLYPH_PLAYING, GLYPH_PAUSED: GLYPH_PAUSED, GLYPH_LATER: GLYPH_LATER, GLYPH_SEARCH: GLYPH_SEARCH,
+    laterKeys: laterKeys, selectable: selectable, firstSelectable: firstSelectable, stepCursor: stepCursor,
+    keyHints: keyHints, rowGlyph: rowGlyph,
     boolSetting: boolSetting, intSetting: intSetting, findBarEntry: findBarEntry, settingsFrom: settingsFrom,
     entryFrom: entryFrom, settingsEqual: settingsEqual, cycle: cycle, nextEpisode: nextEpisode, formatTime: formatTime, barLabel: barLabel,
     tooltip: tooltip, homeRows: homeRows, resultRows: resultRows, episodeMark: episodeMark, episodeRows: episodeRows,

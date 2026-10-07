@@ -1,7 +1,7 @@
 # Senpai
 
-Anime from the Omarchy bar: search, pick up where you left off, watch in mpv.
-ani-py with Latin American subtitles.
+Anime from the Omarchy bar: search, pick up where you left off, keep a
+watch-later list, watch in mpv. ani-py with Latin American subtitles.
 
 ![Senpai finder](preview.png)
 
@@ -43,8 +43,10 @@ with *Find anime*, *Continue watching* and *Stop playback*).
 ## Usage
 
 Open the finder with the keybinding or by clicking the bar glyph. It starts
-on **Continue** (the next episode of the last anime you watched) and your
-recent anime; typing searches.
+at home, in three sections: **Continue** (the next episode of the last anime
+you watched), **Watch later** (the anime you kept, see below) and
+**Recent**; typing searches. The footer always lists the keys that work
+where you are.
 
 | Key | Does |
 | --- | --- |
@@ -52,6 +54,7 @@ recent anime; typing searches.
 | `Enter` | continue / open episodes / play the highlighted episode |
 | `Esc` | back; closes the finder from home |
 | `↑` `↓` `PgUp` `PgDn` `Home` `End` | move |
+| `Ctrl+W` | keep the highlighted anime for later, or drop it from *Watch later* |
 | `Ctrl+D` | save the highlighted episode for offline viewing |
 | `Ctrl+Shift+D` | save a range: type `1-12` or `3,5` and press `Enter` |
 | `Alt+P` / `Alt+A` / `Alt+Q` / `Alt+N` | cycle provider / audio (sub, dub) / quality / auto-next |
@@ -66,6 +69,15 @@ and subtitle in use.
 Saved episodes go to `~/Videos/anime` when that folder exists, else
 `~/Downloads` (or the folder in the *Download folder* setting). A
 notification arrives when each one finishes or fails.
+
+### Watch later
+
+Someone recommends an anime: search it, press `Ctrl+W` on the result and
+it waits in the **Watch later** section of home, marked with a bookmark.
+`Ctrl+W` also works on an episode list (it keeps the anime whose episodes
+you are looking at) and on a *Watch later* row, where it drops the anime.
+Playing any episode drops it too. The list lives in
+`~/.local/state/senpai/watch-later.json`.
 
 ## Settings
 
@@ -105,6 +117,9 @@ survive a shell reload. State lives in `$XDG_RUNTIME_DIR/senpai/`:
 - `downloads/<id>.json` — one record per download (`running`, `done`, `failed`)
 - `ani-py.log`, `downloads/<id>.log` — ani-py's stderr, for troubleshooting
 
+The watch-later list is the only thing that outlives a reboot:
+`$XDG_STATE_HOME/senpai/watch-later.json` (`~/.local/state/senpai/`).
+
 The helper can be used from scripts too:
 
 ```sh
@@ -114,6 +129,9 @@ python3 $H episodes hianime one-piece-1 --title "One Piece"
 python3 $H play hianime one-piece-1 -e 4 --title "One Piece" --sub-lang latino,es,en
 python3 $H download hianime one-piece-1 -e 1-12 --title "One Piece"
 python3 $H continue
+python3 $H later add hianime one-piece-1 --title "One Piece"
+python3 $H later list
+python3 $H later remove hianime one-piece-1
 python3 $H status
 python3 $H stop
 ```
@@ -139,7 +157,7 @@ downgrades and copies with no `--headless` support).
 ```sh
 omarchy plugin disable io.github.ferc10110.senpai
 omarchy plugin remove io.github.ferc10110.senpai
-rm -rf "$XDG_RUNTIME_DIR/senpai"
+rm -rf "$XDG_RUNTIME_DIR/senpai" ~/.local/state/senpai
 ```
 
 Your watch history stays in `~/.local/state/ani-py/`.

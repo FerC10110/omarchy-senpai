@@ -5,6 +5,7 @@ Every command prints exactly one JSON object on stdout and exits 0; a failure
 prints {"error": "..."} and exits 1. Nothing here opens a menu or a terminal.
 """
 import argparse
+import datetime
 import json
 import os
 import signal
@@ -104,6 +105,51 @@ def write_json(path: Path, payload) -> None:
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(payload, fh)
     os.replace(tmp, path)
+
+
+def state_dir() -> Path:
+    """Where the plugin keeps what must outlive a session (the watch-later list)."""
+    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    root = Path(base) / "senpai"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+# ---------- watch later
+
+def later_path() -> Path:
+    return state_dir() / "watch-later.json"
+
+
+def later_key(item) -> tuple:
+    return (str(item.get("provider")), str(item.get("id")))
+
+
+def read_later() -> list:
+    """The watch-later list, newest first; a missing or broken file is empty."""
+    payload = read_json(later_path())
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        return []
+    return [i for i in items if isinstance(i, dict) and i.get("provider") and i.get("id")]
+
+
+def write_later(items: list) -> None:
+    write_json(later_path(), {"items": items})
+
+
+def later_add(provider: str, anime_id: str, title: str | None) -> None:
+    """Put the anime first; one entry per anime, the newest title wins."""
+    kept = [i for i in read_later() if later_key(i) != (provider, anime_id)]
+    added = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    write_later([{"provider": provider, "id": anime_id, "title": title or anime_id, "added": added}] + kept)
+
+
+def later_remove(provider: str, anime_id: str) -> None:
+    items = read_later()
+    kept = [i for i in items if later_key(i) != (provider, anime_id)]
+    if len(kept) != len(items):
+        write_later(kept)
 
 
 # ---------- ani-py
@@ -292,6 +338,7 @@ def cmd_play(opts) -> dict:
     script = ani_py_path(opts.ani_py)
     stop_playback(root)
     title = opts.title or opts.id
+    later_remove(opts.provider_name, opts.id)  # watching it now: it leaves the watch-later list
     meta = {
         "provider": opts.provider_name, "id": opts.id, "title": title, "episode": opts.episode,
         "socket": str(root / "mpv.sock"),
@@ -414,7 +461,19 @@ def cmd_episodes(opts) -> dict:
 
 
 def cmd_home(opts) -> dict:
-    return home_from(ani_py(["--history"], opts.ani_py).get("entries") or [])
+    payload = home_from(ani_py(["--history"], opts.ani_py).get("entries") or [])
+    payload["later"] = read_later()
+    return payload
+
+
+def cmd_later(opts) -> dict:
+    if opts.action == "add":
+        later_add(opts.provider_name, opts.id, opts.title)
+        return {"ok": True, "kept": True}
+    if opts.action == "remove":
+        later_remove(opts.provider_name, opts.id)
+        return {"ok": True, "kept": False}
+    return {"items": read_later()}
 
 
 # ---------- CLI
@@ -435,8 +494,20 @@ def build_parser() -> argparse.ArgumentParser:
     episodes.add_argument("--title")
     episodes.set_defaults(run=cmd_episodes)
 
-    home = sub.add_parser("home", help="what to continue and what was watched recently")
+    home = sub.add_parser("home", help="what to continue, what to watch later and what was watched recently")
     home.set_defaults(run=cmd_home)
+
+    later = sub.add_parser("later", help="the watch-later list")
+    later_actions = later.add_subparsers(dest="action", required=True)
+    later_add_parser = later_actions.add_parser("add", help="keep an anime for later")
+    later_add_parser.add_argument("provider_name")
+    later_add_parser.add_argument("id")
+    later_add_parser.add_argument("--title")
+    later_remove_parser = later_actions.add_parser("remove", help="drop an anime from the list")
+    later_remove_parser.add_argument("provider_name")
+    later_remove_parser.add_argument("id")
+    later_actions.add_parser("list", help="print the list, newest first")
+    later.set_defaults(run=cmd_later)
 
     playback = argparse.ArgumentParser(add_help=False)
     playback.add_argument("--sub-lang", dest="sub_lang")

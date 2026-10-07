@@ -167,6 +167,29 @@ Item {
     }
   }
 
+  // ---- watch later: the helper owns the list; home carries it back.
+  function isLater(provider, id) {
+    return Model.laterKeys(root.home)[String(provider) + ":" + String(id)] === true
+  }
+
+  property var _laterCb: null
+  function setLater(provider, id, title, keep, cb) {
+    root._laterCb = cb
+    root.lastError = ""
+    laterCmd.start(helperArgs(keep ? ["later", "add", provider, id, "--title", title] : ["later", "remove", provider, id]))
+  }
+  SenpaiCommand {
+    id: laterCmd
+    program: root.helperPath
+    policy: "queue"
+    onFinished: function(code, out, err) {
+      var payload = root.parseOut(out)
+      if (code !== 0 || !payload || payload.error) { root.reportError(payload, err); payload = null }
+      var cb = root._laterCb; root._laterCb = null
+      root.refreshHome(function() { if (cb) cb(payload) })
+    }
+  }
+
   // play / download / stop / continue share one runner: they are user
   // actions, one at a time.
   // Set by a play request; the events file may then carry the reason it failed.

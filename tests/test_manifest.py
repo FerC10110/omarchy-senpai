@@ -51,7 +51,7 @@ class TestManifest(unittest.TestCase):
 
     def test_glyphs_exist_in_the_installed_nerd_font(self):
         model = (ROOT / "SenpaiModel.js").read_text(encoding="utf-8")
-        for name in ("GLYPH_IDLE", "GLYPH_PLAYING", "GLYPH_PAUSED"):
+        for name in ("GLYPH_IDLE", "GLYPH_PLAYING", "GLYPH_PAUSED", "GLYPH_LATER", "GLYPH_SEARCH"):
             match = re.search(name + r' = "([^"]+)"', model)
             self.assertIsNotNone(match, name)
             literal = match.group(1)

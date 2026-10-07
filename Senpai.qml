@@ -48,6 +48,7 @@ Item {
   readonly property int cardWidth: Math.min(Style.space(760), panel.width - Style.gapsOut * 2)
   readonly property int cardHeight: Math.min(Style.space(560), panel.height - Style.gapsOut * 2)
   readonly property int rowHeight: Math.max(Style.space(40), Style.font.title + Style.font.bodySmall + Style.space(10))
+  readonly property int headerHeight: Style.font.caption + Style.space(14)
 
   // ---- host API
   function resolveService() {
@@ -104,6 +105,9 @@ Item {
                             paused: root.playing ? root.service.paused : false,
                             position: root.playing ? root.service.position : 0,
                             duration: root.playing ? root.service.duration : 0,
+                            kinds: root.rows.map(function(r) { return r.kind }),
+                            cursorKind: root.current() ? String(root.current().kind) : "",
+                            later: root.serviceReady && root.service.home && Array.isArray(root.service.home.later) ? root.service.home.later.length : 0,
                             settings: root.settings,
                             ownSettings: root.serviceReady && root.service.ownSettings !== null,
                             hostQuality: root.serviceReady ? root.service.hostSettings.quality : "" })
@@ -116,6 +120,7 @@ Item {
     else if (n === "enter") root.activate()
     else if (n === "escape") root.back()
     else if (n === "ctrl+d") root.downloadHighlighted()
+    else if (n === "ctrl+w") root.toggleLaterHighlighted()
     else if (n === "ctrl+space") { if (root.serviceReady) root.service.togglePause() }
     else if (n === "ctrl+n") { if (root.serviceReady) root.service.next() }
     else if (n === "ctrl+s") { if (root.serviceReady) root.service.stop() }
@@ -127,8 +132,21 @@ Item {
   function showHome() {
     root.mode = "home"
     root.rows = Model.homeRows(root.serviceReady ? root.service.home : null)
-    root.cursor = 0
+    root.cursor = Model.firstSelectable(root.rows)
     root.scrollToCursor()
+  }
+
+  // Re-render the current list after the watch-later list changed.
+  function refreshRows() {
+    if (!root.serviceReady) return
+    if (root.mode === "home") {
+      var was = root.cursor
+      root.rows = Model.homeRows(root.service.home)
+      root.cursor = Model.stepCursor(root.rows, Model.clampIndex(was, root.rows.length), 0)
+      root.scrollToCursor()
+    } else if (root.mode === "results") {
+      root.rows = Model.resultRows({ results: root.rows }, Model.laterKeys(root.service.home))
+    }
   }
 
   function setQueryText(text) {
@@ -144,7 +162,7 @@ Item {
     var asked = root.query
     root.service.search(asked, function(payload) {
       if (root.query !== asked || root.mode !== "results") return
-      root.rows = Model.resultRows(payload)
+      root.rows = Model.resultRows(payload, Model.laterKeys(root.service.home))
       root.cursor = 0
       root.scrollToCursor()
       if (payload && root.rows.length === 0) root.showNotice("No results for \"" + asked + "\"")
@@ -184,7 +202,7 @@ Item {
   // ---- cursor
   function moveCursor(delta) {
     root.digits = ""
-    root.cursor = Model.clampIndex(root.cursor + delta, root.rows.length)
+    root.cursor = Model.stepCursor(root.rows, root.cursor, delta)
     root.scrollToCursor()
   }
   function pageSize() { return Math.max(1, Math.floor(list.height / root.rowHeight) - 1) }
@@ -200,7 +218,7 @@ Item {
     if (!row || !root.serviceReady) return
     if (root.mode === "home") {
       if (row.kind === "continue") { root.service.play(row.provider, row.id, row.animeTitle, row.episode); root.dismiss(); return }
-      if (row.kind === "recent") { root.openEpisodes(row.provider, row.id, row.animeTitle, "home"); return }
+      if (row.kind === "recent" || row.kind === "later") { root.openEpisodes(row.provider, row.id, row.animeTitle, "home"); return }
       return
     }
     if (root.mode === "results") { root.openEpisodes(row.provider, row.id, row.title, "results"); return }
@@ -217,6 +235,26 @@ Item {
       root.rangeText = ""
       root.mode = "episodes"
     }
+  }
+
+  // Ctrl+W: keep the highlighted anime (or the open one) for later, or drop it.
+  function toggleLaterHighlighted() {
+    if (!root.serviceReady) return
+    var target, keep
+    if (root.mode === "episodes" || root.mode === "range") {
+      if (!root.anime) return
+      target = root.anime
+      keep = !root.service.isLater(target.provider, target.id)
+    } else {
+      var row = root.current()
+      if (!row || !Model.selectable(row)) return
+      target = { provider: row.provider, id: row.id, title: row.animeTitle || row.title }
+      keep = row.kind !== "later" && row.later !== true && !root.service.isLater(row.provider, row.id)
+    }
+    root.service.setLater(target.provider, target.id, target.title, keep, function(payload) {
+      if (payload) root.showNotice((keep ? "Kept for later · " : "Dropped from Watch later · ") + target.title)
+      root.refreshRows()
+    })
   }
 
   function downloadHighlighted() {
@@ -277,6 +315,7 @@ Item {
     if (ctrl && event.key === Qt.Key_S) { if (root.serviceReady) root.service.stop(); return true }
     if (ctrl && shift && event.key === Qt.Key_D) { root.startRange(); return true }
     if (ctrl && event.key === Qt.Key_D) { root.downloadHighlighted(); return true }
+    if (ctrl && event.key === Qt.Key_W) { root.toggleLaterHighlighted(); return true }
     if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { root.activate(); return true }
     if (event.key === Qt.Key_Down) { root.moveCursor(1); return true }
     if (event.key === Qt.Key_Up) { root.moveCursor(-1); return true }
@@ -343,39 +382,62 @@ Item {
           anchors.fill: parent
           spacing: Style.spacing.md
 
-          // Header: prompt + query (or range), busy marker.
+          // Header: the title and a search box (episode jump / range in the other modes).
           Item {
             width: parent.width
-            height: Style.font.heading + Style.spacing.controlPaddingY * 2
+            height: searchBox.height
             Text {
               id: prompt
               anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
-              text: root.mode === "range" ? "Download episodes" : (root.mode === "episodes" && root.anime ? String(root.anime.title) : "Senpai")
+              text: root.mode === "range" ? "Save episodes" : (root.mode === "episodes" && root.anime ? String(root.anime.title) : "Senpai")
+              textFormat: Text.PlainText
               color: root.accent
               font.family: root.fontFamily
               font.pixelSize: Style.font.heading
               font.bold: true
               elide: Text.ElideRight
-              width: Math.min(implicitWidth, parent.width * 0.5)
+              width: Math.min(implicitWidth, parent.width * 0.45)
             }
-            Text {
+            Rectangle {
+              id: searchBox
               anchors.left: prompt.right
               anchors.leftMargin: Style.spacing.lg
               anchors.right: busyText.left
               anchors.rightMargin: Style.spacing.md
               anchors.verticalCenter: parent.verticalCenter
-              text: {
-                if (root.mode === "range") return root.rangeText === "" ? "1-12, 3,5" : root.rangeText + "▏"
-                if (root.mode === "episodes") return root.digits !== "" ? "jump " + root.digits : "type a number · Enter plays · Ctrl+D downloads"
-                return root.query === "" ? "type to search" : root.query + "▏"
+              height: Style.font.heading + Style.spacing.controlPaddingY * 2
+              radius: Style.cornerRadius
+              color: root.selectedBackground
+              Text {
+                id: searchGlyph
+                anchors.left: parent.left
+                anchors.leftMargin: Style.spacing.controlPaddingX
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.mode === "episodes" ? "#" : Model.GLYPH_SEARCH
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
               }
-              readonly property bool hint: (root.mode === "range" && root.rangeText === "") || (root.mode === "episodes" && root.digits === "") || (root.mode !== "range" && root.mode !== "episodes" && root.query === "")
-              color: hint ? root.dim : root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.heading
-              // A long query keeps its tail in view; a hint keeps its start.
-              elide: hint ? Text.ElideRight : Text.ElideLeft
+              Text {
+                anchors.left: searchGlyph.right
+                anchors.leftMargin: Style.spacing.sm
+                anchors.right: parent.right
+                anchors.rightMargin: Style.spacing.controlPaddingX
+                anchors.verticalCenter: parent.verticalCenter
+                text: {
+                  if (root.mode === "range") return root.rangeText === "" ? "1-12 or 3,5 · Enter saves them" : root.rangeText + "▏"
+                  if (root.mode === "episodes") return root.digits !== "" ? root.digits + "▏" : "type an episode number"
+                  return root.query === "" ? "search anime" : root.query + "▏"
+                }
+                readonly property bool hint: (root.mode === "range" && root.rangeText === "") || (root.mode === "episodes" && root.digits === "") || (root.mode !== "range" && root.mode !== "episodes" && root.query === "")
+                textFormat: Text.PlainText
+                color: hint ? root.dim : root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                // A long query keeps its tail in view; a hint keeps its start.
+                elide: hint ? Text.ElideRight : Text.ElideLeft
+              }
             }
             Text {
               id: busyText
@@ -408,42 +470,97 @@ Item {
             model: root.rows.length
             spacing: Style.space(2)
             boundsBehavior: Flickable.StopAtBounds
-            delegate: Rectangle {
+            // A row is a section header (small, dim, not selectable), the
+            // empty hint, or an item: glyph column, title, a second line or
+            // a provider chip, and an accent bar when selected.
+            delegate: Item {
               required property int index
               readonly property var row: root.rows[index] || ({})
-              readonly property bool selected: index === root.cursor
+              readonly property bool header: row.kind === "header"
+              readonly property bool selected: !header && index === root.cursor
+              readonly property bool kept: row.kind === "later" || row.later === true
+              readonly property bool chipKind: row.kind === "result" || row.kind === "later"
               width: list.width
-              height: root.rowHeight
-              radius: Style.cornerRadius
-              color: selected ? root.selectedBackground : "transparent"
+              height: header ? root.headerHeight : root.rowHeight
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: root.selectedBackground
+                visible: selected
+              }
+              Rectangle {
+                width: Style.space(3)
+                height: parent.height - Style.space(10)
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                radius: width
+                color: root.accent
+                visible: selected
+              }
               MouseArea {
                 anchors.fill: parent
+                enabled: Model.selectable(row)
                 hoverEnabled: true
                 onEntered: root.cursor = index
                 onClicked: { root.cursor = index; root.activate() }
               }
               Text {
+                visible: header
+                anchors.left: parent.left
+                anchors.leftMargin: Style.spacing.rowPaddingX
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Style.space(3)
+                text: header ? String(row.title || "").toUpperCase() : ""
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                font.letterSpacing: 1
+              }
+              Text {
                 id: mark
+                visible: !header
                 anchors.left: parent.left
                 anchors.leftMargin: Style.spacing.rowPaddingX
                 anchors.verticalCenter: parent.verticalCenter
                 width: Style.space(18)
-                text: row.kind === "episode" ? String(row.mark || "") : (row.kind === "continue" ? "▶" : "")
-                color: selected ? root.accent : root.dim
+                text: Model.rowGlyph(row)
+                color: selected || kept ? root.accent : root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.title
               }
+              Rectangle {
+                id: chip
+                visible: !header && chipKind && String(row.subtitle || "") !== ""
+                anchors.right: parent.right
+                anchors.rightMargin: Style.spacing.rowPaddingX
+                anchors.verticalCenter: parent.verticalCenter
+                width: chipLabel.implicitWidth + Style.spacing.controlPaddingX
+                height: chipLabel.implicitHeight + Style.space(4)
+                radius: Style.cornerRadius
+                color: selected ? root.background : root.selectedBackground
+                Text {
+                  id: chipLabel
+                  anchors.centerIn: parent
+                  text: String(row.subtitle || "")
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+              }
               Column {
+                visible: !header
                 anchors.left: mark.right
                 anchors.leftMargin: Style.spacing.sm
-                anchors.right: parent.right
+                anchors.right: chip.visible ? chip.left : parent.right
                 anchors.rightMargin: Style.spacing.rowPaddingX
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: Style.space(2)
                 Text {
                   width: parent.width
                   text: String(row.title || "")
-                  color: selected ? root.accent : root.foreground
+                  textFormat: Text.PlainText
+                  color: row.kind === "empty" ? root.dim : (selected ? root.accent : root.foreground)
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.title
                   elide: Text.ElideRight
@@ -451,7 +568,8 @@ Item {
                 Text {
                   width: parent.width
                   visible: text !== ""
-                  text: row.kind === "episode" ? (row.state === "watched" ? "watched" : (row.state === "unfinished" ? "unfinished" : "")) : String(row.subtitle || "")
+                  text: chipKind ? "" : (row.kind === "episode" ? (row.state === "watched" ? "watched" : (row.state === "unfinished" ? "unfinished" : "")) : String(row.subtitle || ""))
+                  textFormat: Text.PlainText
                   color: root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.bodySmall
@@ -536,7 +654,7 @@ Item {
             }
             Text {
               width: parent.width
-              text: "Enter play · Esc back · Ctrl+D download · Ctrl+Shift+D range · Alt+P provider · Alt+A audio · Alt+Q quality · Alt+S subs · Alt+N auto-next · Ctrl+Space pause · Ctrl+N next · Ctrl+S stop"
+              text: Model.keyHints(root.mode, root.playing)
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption

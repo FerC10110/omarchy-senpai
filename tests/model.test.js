@@ -85,20 +85,76 @@ test("home rows put continue first, then recents, or an empty hint", () => {
     ],
   }
   const rows = Model.homeRows(home)
-  assert.equal(rows[0].kind, "continue")
-  assert.equal(rows[0].title, "Continue · One Piece")
-  assert.equal(rows[0].subtitle, "Episode 5")
-  assert.equal(rows[1].kind, "recent")
-  assert.equal(rows[1].subtitle, "Episode 4 · watched")
-  assert.equal(rows[2].subtitle, "Episode 7 · unfinished")
+  assert.deepEqual(rows.map(r => r.kind), ["header", "continue", "header", "recent", "recent"])
+  assert.equal(rows[0].title, "Continue")
+  assert.equal(rows[1].title, "One Piece")
+  assert.equal(rows[1].subtitle, "Episode 5")
+  assert.equal(rows[2].title, "Recent")
+  assert.equal(rows[3].subtitle, "Episode 4 · watched")
+  assert.equal(rows[4].subtitle, "Episode 7 · unfinished")
   const resume = Model.homeRows({ continue: Object.assign({}, home.continue, { resume: true }), recent: [] })
-  assert.equal(resume[0].subtitle, "Episode 5 · resume")
-  assert.deepEqual(Model.homeRows({ continue: null, recent: [] }).map(r => r.kind), ["empty"])
+  assert.equal(resume[1].subtitle, "Episode 5 · resume")
+  const empty = Model.homeRows({ continue: null, recent: [] })
+  assert.deepEqual(empty.map(r => r.kind), ["empty"])
+  assert.match(empty[0].subtitle, /Ctrl\+W/)
+})
+
+test("homeRows puts the watch-later list between continue and recent", () => {
+  const rows = Model.homeRows({
+    continue: null,
+    later: [{ provider: "animeflv", id: "nana-7", title: "Nana" }],
+    recent: [{ provider: "hianime", id: "frieren-481", title: "Frieren", episode: "7", completed: false }],
+  })
+  assert.deepEqual(rows.map(r => r.kind + ":" + r.title), ["header:Watch later", "later:Nana", "header:Recent", "recent:Frieren"])
+  assert.equal(rows[1].provider, "animeflv")
+  assert.equal(rows[1].animeTitle, "Nana")
+})
+
+test("the cursor never lands on a header or the empty hint", () => {
+  const rows = [{ kind: "header" }, { kind: "continue" }, { kind: "header" }, { kind: "later" }, { kind: "later" }]
+  assert.equal(Model.firstSelectable(rows), 1)
+  assert.equal(Model.stepCursor(rows, 1, 1), 3)
+  assert.equal(Model.stepCursor(rows, 3, -1), 1)
+  assert.equal(Model.stepCursor(rows, 1, -1), 1)
+  assert.equal(Model.stepCursor(rows, 4, 1), 4)
+  assert.equal(Model.stepCursor(rows, 1, 10), 4)
+  assert.equal(Model.stepCursor(rows, 4, -10), 1)
+  assert.equal(Model.firstSelectable([{ kind: "empty" }]), 0)
+  assert.equal(Model.stepCursor([], 0, 1), 0)
+})
+
+test("keyHints show only the keys that work in the current mode", () => {
+  assert.equal(Model.keyHints("home", false), "Enter open · Ctrl+W later · Esc close · Alt+P/A/Q/S/N settings")
+  assert.equal(Model.keyHints("results", false), "Enter episodes · Ctrl+W later · Esc home · Alt+P/A/Q/S/N settings")
+  assert.equal(Model.keyHints("episodes", false), "Enter play · Ctrl+D save · Ctrl+Shift+D range · Ctrl+W later · Esc back")
+  assert.equal(Model.keyHints("range", false), "Enter save · Esc back")
+  assert.equal(Model.keyHints("home", true), "Enter open · Ctrl+W later · Esc close · Alt+P/A/Q/S/N settings · Ctrl+Space pause · Ctrl+N next · Ctrl+S stop")
+})
+
+test("result rows know whether the anime is already kept for later", () => {
+  const keys = Model.laterKeys({ later: [{ provider: "hianime", id: "frieren-481" }] })
+  const rows = Model.resultRows({ results: [
+    { provider: "hianime", id: "frieren-481", title: "Frieren" }, { provider: "hianime", id: "nana-7", title: "Nana" },
+  ] }, keys)
+  assert.deepEqual(rows.map(r => r.later), [true, false])
+  assert.equal(Model.resultRows({ results: [{ provider: "p", id: "x", title: "X" }] })[0].later, false)
+  assert.deepEqual(Model.laterKeys(null), {})
+})
+
+test("rowGlyph gives each kind of row its mark", () => {
+  assert.equal(Model.rowGlyph({ kind: "continue" }), "▶")
+  assert.equal(Model.rowGlyph({ kind: "later" }), Model.GLYPH_LATER)
+  assert.equal(Model.rowGlyph({ kind: "result", later: true }), Model.GLYPH_LATER)
+  assert.equal(Model.rowGlyph({ kind: "result" }), "")
+  assert.equal(Model.rowGlyph({ kind: "episode", state: "watched" }), "✓")
+  assert.equal(Model.rowGlyph({ kind: "episode", state: "unfinished" }), "◐")
+  assert.equal(Model.rowGlyph({ kind: "recent" }), "")
+  assert.equal(Model.GLYPH_LATER.length, 1)
 })
 
 test("result and episode rows carry what the UI shows", () => {
   const results = Model.resultRows({ results: [{ provider: "animeav1", id: "frieren", title: "Frieren" }] })
-  assert.deepEqual(results[0], { kind: "result", provider: "animeav1", id: "frieren", title: "Frieren", subtitle: "animeav1" })
+  assert.deepEqual(results[0], { kind: "result", provider: "animeav1", id: "frieren", title: "Frieren", subtitle: "animeav1", later: false })
   const episodes = Model.episodeRows({ anime: { provider: "hianime", id: "x", title: "X" }, episodes: [
     { number: "1", id: "1001", state: "watched" }, { number: "2", id: "1002", state: "unfinished" }, { number: "3", id: "1003", state: "new" },
   ] })
